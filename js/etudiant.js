@@ -78,7 +78,13 @@ async function connecter(code, interactif) {
     binomes = binomes.filter(n => n !== DB.nomCourt(E));
     document.getElementById("btn-deco").classList.remove("cache");
     rendre();
-    arrets.push(await DB.ecouterSeanceOuverte(E.groupe, s => { seance = s; majBandeau(); majSeance(); }));
+    arrets.push(await DB.ecouterSeanceOuverte(E.groupe, s => {
+      const avant = seance?.id;
+      seance = s;
+      if (!s) saisie = null;   // séance clôturée pendant une saisie : on l'abandonne
+      majBandeau(); majSeance();
+      if (avant !== s?.id && onglet === "seance") vueSaisie();
+    }));
     arrets.push(await DB.ecouterPassagesEtudiant(E.code, l => { passages = l; majSeance(); if (onglet === "progression") vueProgression(); }));
     return true;
   } catch (err) {
@@ -114,7 +120,7 @@ function majBandeau() {
   if (!b) return;
   b.innerHTML = seance
     ? `<div class="bandeau-seance on"><span class="point-live"></span>Séance en cours · depuis ${fmtHeure(seance.debut)}</div>`
-    : `<div class="bandeau-seance off">Aucune séance ouverte : vos voies sont enregistrées dans votre carnet.</div>`;
+    : `<div class="bandeau-seance ferme">⛔ Aucune séance ouverte. Demandez à votre enseignant·e d'ouvrir la séance pour enregistrer vos voies.</div>`;
 }
 
 // ---------------- Onglet « Ma séance » ----------------
@@ -146,7 +152,7 @@ function majSeance() {
           <div class="stat accent"><div class="val">${maxTete(liste) || "—"}</div><div class="lbl">Max en tête</div></div>
           <div class="stat"><div class="val">${maxMoulinette(liste) || "—"}</div><div class="lbl">Max moulinette</div></div>
         </div>
-        ${[...liste].reverse().map(ligneP).join("")}` : `<div class="vide">Aucune voie pour l'instant. Touchez « Ajouter une voie ».</div>`}
+        ${[...liste].reverse().map(ligneP).join("")}` : `<div class="vide">${seance ? "Aucune voie pour l'instant. Touchez « Ajouter une voie »." : "Aucune voie aujourd'hui."}</div>`}
     </div>`;
   z.querySelectorAll("[data-annuler]").forEach(b => b.onclick = async () => {
     const p = passages.find(x => x.id === b.dataset.annuler);
@@ -176,6 +182,14 @@ function vueSaisie() {
   const z = document.getElementById("zone-saisie");
   if (!z) return;
   const actives = topo.filter(v => v.actif !== false);
+
+  // Pas de séance ouverte : la saisie est bloquée
+  if (!seance) {
+    saisie = null;
+    z.innerHTML = `<button class="primaire plein" style="margin-top:14px" disabled>＋ Ajouter une voie</button>
+      <p class="small" style="text-align:center;color:var(--bad);margin-top:6px">L'enregistrement est possible uniquement pendant une séance ouverte par l'enseignant·e.</p>`;
+    return;
+  }
 
   if (!saisie) {
     z.innerHTML = `<button class="primaire plein" id="btn-ajout" style="margin-top:14px">＋ Ajouter une voie</button>`;
@@ -252,6 +266,10 @@ async function enregistrer() {
   const btn = document.getElementById("s-ok");
   btn.disabled = true;
   const v = saisie.voie;
+  if (!seance) {
+    toast("La séance est fermée : demandez à votre enseignant·e de l'ouvrir.");
+    saisie = null; vueSaisie(); return;
+  }
   try {
     await DB.ajouterPassage(E, seance?.id, {
       voieId: v.id, relais: v.relais, couleur: v.couleur, cotation: v.cotation, nomVoie: v.nom, secteur: v.secteur,
@@ -263,7 +281,7 @@ async function enregistrer() {
   } catch (e) {
     console.error(e);
     btn.disabled = false;
-    toast("Enregistrement impossible : vérifiez le réseau.");
+    toast(seance ? "Enregistrement impossible : vérifiez le réseau." : "La séance est fermée : demandez à votre enseignant·e de l'ouvrir.");
   }
 }
 

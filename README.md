@@ -19,7 +19,7 @@ Hébergement : **GitHub Pages** (gratuit). Données : **Firebase Firestore** (of
    Le point vert signale un étudiant actif. Le point orange signale qu'il n'a rien enregistré depuis 15 minutes.
 5. En fin de cours, cliquez sur **Clôturer la séance**. Une séance oubliée se ferme d'elle-même côté étudiant au bout de 6 heures.
 
-Si aucune séance n'est ouverte, l'étudiant peut quand même enregistrer ses voies : elles vont dans son carnet personnel.
+**Sans séance ouverte, l'étudiant ne peut rien enregistrer** : un message lui demande de faire ouvrir la séance par l'enseignant·e. Chaque voie du carnet est donc rattachée à une séance encadrée, ce qui est utile pour l'évaluation.
 
 ---
 
@@ -59,7 +59,7 @@ Dans la console Firebase, ouvrez **Firestore Database > Règles**. Collez tout l
 Ce que garantissent ces règles :
 - seul un compte enseignant autorisé peut gérer les étudiants, les séances et le topo, et voir le suivi en direct ;
 - un étudiant n'accède qu'à **son** carnet, grâce à son code (6 caractères) ;
-- un étudiant ne peut ajouter une voie à une séance que si elle est **ouverte** et appartient à **son groupe** ;
+- un étudiant ne peut enregistrer une voie que pendant une séance **ouverte** de **son groupe** (même en contournant l'appli) ;
 - un étudiant peut annuler une saisie pendant 15 minutes. Au-delà, seul l'enseignant peut la corriger.
 
 ## 4. Mettre en ligne sur GitHub Pages

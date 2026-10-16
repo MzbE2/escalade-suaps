@@ -18,6 +18,12 @@ service cloud.firestore {
     function annulable() {
       return request.time < resource.data.ts + duration.value(15, 'm');
     }
+    // Un étudiant n'enregistre une voie que dans une séance OUVERTE de SON groupe
+    function seanceOuverteDuGroupe(code, seanceId) {
+      let seance = get(/databases/$(database)/documents/seances/$(seanceId)).data;
+      return seance.ouverte == true
+        && seance.groupe == get(/databases/$(database)/documents/etudiants/$(code)).data.groupe;
+    }
     // Contrôle de la forme d'un passage envoyé par un étudiant
     function passageValide(code) {
       let d = request.resource.data;
@@ -51,7 +57,9 @@ service cloud.firestore {
       // Carnet de l'étudiant
       match /passages/{id} {
         allow read: if true;
-        allow create: if estProf() || (etudiantExiste(code) && passageValide(code));
+        allow create: if estProf() || (etudiantExiste(code) && passageValide(code)
+          && request.resource.data.seanceId is string
+          && seanceOuverteDuGroupe(code, request.resource.data.seanceId));
         allow update: if estProf();
         allow delete: if estProf() || annulable();
       }
@@ -69,7 +77,7 @@ service cloud.firestore {
           etudiantExiste(request.resource.data.code)
           && passageValide(request.resource.data.code)
           && request.resource.data.seanceId == seanceId
-          && get(/databases/$(database)/documents/seances/$(seanceId)).data.ouverte == true);
+          && seanceOuverteDuGroupe(request.resource.data.code, seanceId));
         allow update: if estProf();
         allow delete: if estProf() || annulable();
       }
