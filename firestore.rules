@@ -36,6 +36,12 @@ service cloud.firestore {
       allow write: if estProf();
     }
 
+    // Photos des voies : lisibles par tous, modifiables par l'enseignant
+    match /photos/{voieId} {
+      allow read: if true;
+      allow write: if estProf();
+    }
+
     // Profils étudiants : le code (identifiant du document) sert de clé d'accès
     match /etudiants/{code} {
       allow get: if true;                 // lire UN profil si on connaît son code

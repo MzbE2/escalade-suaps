@@ -466,7 +466,7 @@ function vueTopo() {
         <div class="ligne"><label class="small" style="margin:0"><input type="checkbox" id="voir-demontees" style="width:auto"> Voir les voies démontées</label>
           <button class="primaire" id="btn-save-topo">Enregistrer le topo</button></div>
       </div>
-      <p class="small muted">Lors d'un rééquipement : décochez « En place » pour les anciennes voies (ou « Démonter le relais »), puis ajoutez les nouvelles. Ne supprimez pas une voie déjà grimpée : la démonter suffit.</p>
+      <p class="small muted">📷 Sur téléphone, « ＋ Photo » permet de photographier la voie directement au pied du mur. Lors d'un rééquipement : décochez « En place » pour les anciennes voies (ou « Démonter le relais »), puis ajoutez les nouvelles. Ne supprimez pas une voie déjà grimpée : la démonter suffit.</p>
     </div>
     ${SECTEURS.map(s => `
       <div class="carte">
@@ -478,6 +478,7 @@ function vueTopo() {
           ${topo.map((v, i) => [v, i]).filter(([v]) => v.relais === r).sort((a, b) => rangCotation(a[0].cotation) - rangCotation(b[0].cotation)).map(([v, i]) => `
             <tr data-i="${i}" class="${v.actif === false ? "demontee" : ""}" style="${v.actif === false ? "opacity:.55" : ""}">
               <td style="width:34px">${puce(v.couleur)}</td>
+              <td style="width:110px;white-space:nowrap">${v.photo ? `<button class="lien" data-photo-voir="${i}">📷 Voir</button>` : `<label class="lien small" style="margin:0;cursor:pointer;color:var(--accent)">＋ Photo<input type="file" accept="image/*" data-photo-ajout="${i}" hidden></label>`}</td>
               <td><input class="t-nom" value="${esc(v.nom)}"></td>
               <td style="width:120px"><select class="t-coul">${optCouleurs(v.couleur)}</select></td>
               <td style="width:95px"><select class="t-cot">${optCot(v.cotation)}</select></td>
@@ -512,6 +513,48 @@ function vueTopo() {
     lire();
     topo.forEach(v => { if (v.relais === +b.dataset.demonter) v.actif = false; });
     vueTopo();
+  });
+  // Photos : enregistrées tout de suite (avec les modifications en cours du topo)
+  const envoyerPhoto = async (i, fichier) => {
+    if (!fichier) return;
+    lire();
+    const v = topo[i];
+    try {
+      toast("Compression de la photo…");
+      const data = await DB.compresserImage(fichier);
+      await DB.savePhoto(v.id, data);
+      v.photo = true;
+      topo.forEach(x => delete x.nouvelle);
+      await DB.saveTopo(topo);
+      toast(`Photo enregistrée pour « ${v.nom} »`);
+      vueTopo();
+    } catch (e) { console.error(e); toast("Photo impossible à enregistrer"); }
+  };
+  c.querySelectorAll("[data-photo-ajout]").forEach(inp => inp.onchange = () => envoyerPhoto(+inp.dataset.photoAjout, inp.files[0]));
+  c.querySelectorAll("[data-photo-voir]").forEach(b => b.onclick = async () => {
+    const i = +b.dataset.photoVoir, v = topo[i];
+    const data = await DB.getPhoto(v.id);
+    modal.innerHTML = `
+      <div class="modal-fond"><div class="modal">
+        <div class="entete-carte"><div><h2>${esc(v.nom)}</h2><p class="muted small">Relais ${v.relais} · ${esc(v.couleur)} · ${esc(v.cotation)}</p></div><button id="fermer">✕</button></div>
+        ${data ? `<img src="${data}" alt="Photo de la voie" style="width:100%;border-radius:10px;margin-top:10px">` : `<p class="muted">Photo introuvable.</p>`}
+        <div class="ligne espace" style="margin-top:14px">
+          <button class="danger" id="ph-suppr">Supprimer la photo</button>
+          <label class="btn primaire" style="margin:0">Remplacer<input type="file" accept="image/*" id="ph-remp" hidden></label>
+        </div>
+      </div></div>`;
+    const fermer = () => { modal.innerHTML = ""; };
+    modal.querySelector("#fermer").onclick = fermer;
+    modal.querySelector(".modal-fond").onclick = ev => { if (ev.target.classList.contains("modal-fond")) fermer(); };
+    modal.querySelector("#ph-remp").onchange = ev => { fermer(); envoyerPhoto(i, ev.target.files[0]); };
+    modal.querySelector("#ph-suppr").onclick = async () => {
+      if (!(await demander("Supprimer la photo de cette voie ?", "Supprimer"))) return;
+      lire();
+      await DB.supprimerPhoto(v.id);
+      v.photo = false;
+      await DB.saveTopo(topo);
+      fermer(); toast("Photo supprimée"); vueTopo();
+    };
   });
   c.querySelectorAll("[data-suppr]").forEach(b => b.onclick = () => { lire(); topo.splice(+b.dataset.suppr, 1); vueTopo(); });
   c.querySelector("#btn-save-topo").onclick = async () => {

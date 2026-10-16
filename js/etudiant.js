@@ -203,7 +203,7 @@ function vueSaisie() {
     const vs = actives.filter(v => v.relais === saisie.relais).sort((a, b) => rangCotation(a.cotation) - rangCotation(b.cotation));
     z.innerHTML = `<div class="carte">
       <div class="entete-carte"><h3>Relais ${saisie.relais} : quelle voie ?</h3>${annuler}</div>
-      ${vs.map(v => `<button class="voie-btn" data-v="${v.id}">${puce(v.couleur, true)}<span class="nom">${esc(v.nom)}<br><span class="small muted">${esc(v.couleur)}</span></span><span class="cot">${esc(v.cotation)}</span></button>`).join("")
+      ${vs.map(v => `<button class="voie-btn" data-v="${v.id}">${puce(v.couleur, true)}<span class="nom">${esc(v.nom)}<br><span class="small muted">${esc(v.couleur)}${v.photo ? " · 📷" : ""}</span></span><span class="cot">${esc(v.cotation)}</span></button>`).join("")
         || `<div class="vide">Aucune voie sur ce relais.</div>`}
       <button class="lien" id="s-retour">← Changer de relais</button>
     </div>`;
@@ -219,6 +219,7 @@ function vueSaisie() {
       <div class="entete-carte"><h3>Détails</h3>${annuler}</div>
       <div class="ligne" style="margin:4px 0 6px">${puce(v.couleur, true)}<div style="flex:1"><b>${esc(v.nom)}</b><br><span class="small muted">Relais ${v.relais} · ${esc(v.couleur)} · ${esc(v.secteur)}</span></div>
         <span class="presc"><span class="gros">${esc(v.cotation)}</span></span></div>
+      <div id="s-photo"></div>
       <button class="lien" id="s-retour">← Changer de voie</button>
       <label>Mode</label>${seg("mode", MODES)}
       <label>Résultat</label>${seg("resultat", RESULTATS)}
@@ -237,6 +238,11 @@ function vueSaisie() {
     z.querySelector("#s-ass").onchange = ev => { saisie.assureur = ev.target.value; };
     z.querySelector("#s-retour").onclick = () => { saisie.voie = null; vueSaisie(); };
     z.querySelector("#s-ok").onclick = enregistrer;
+    if (v.photo) DB.getPhoto(v.id).then(data => {
+      const ph = document.getElementById("s-photo");
+      if (data && ph && saisie?.voie?.id === v.id)
+        ph.innerHTML = `<img src="${data}" alt="Photo de la voie" style="width:100%;max-height:60vh;object-fit:contain;border-radius:10px;margin:8px 0;background:var(--surface-2)">`;
+    }).catch(() => {});
   }
   const a = z.querySelector("#s-annuler");
   if (a) a.onclick = () => { saisie = null; vueSaisie(); };

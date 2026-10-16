@@ -8,6 +8,7 @@
 //    etudiants/{code}/passages/{id}  carnet de l'étudiant
 //    seances/{id}                    séance ouverte/clôturée par l'enseignant
 //    seances/{id}/passages/{id}      copie du passage, écoutée en direct par l'enseignant
+//    photos/{voieId}                 photo compressée d'une voie (une par document)
 // =====================================================================
 import { firebaseConfig } from "./firebase-config.js";
 import { TOPO_INITIAL, genererCode } from "./topo.js";
@@ -37,7 +38,8 @@ let memoire = null;
 const ecouteurs = new Set();
 function lireDemo() {
   try { const lu = JSON.parse(localStorage.getItem(CLE)); if (lu) memoire = lu; } catch (e) { /* on garde la mémoire */ }
-  if (!memoire) memoire = { etudiants: {}, passages: {}, seances: {}, topo: clone(TOPO_INITIAL), annuaire: { groupes: {} } };
+  if (!memoire) memoire = { etudiants: {}, passages: {}, seances: {}, photos: {}, topo: clone(TOPO_INITIAL), annuaire: { groupes: {} } };
+  memoire.photos ||= {};
   return memoire;
 }
 function ecrireDemo() {
@@ -93,6 +95,57 @@ export async function saveTopo(voies) {
   if (MODE_DEMO) { lireDemo().topo = clone(voies); ecrireDemo(); return; }
   await fb();
   await fs.setDoc(fs.doc(db, "config", "topo"), { voies, majLe: maintenant() });
+}
+
+// ---------- Photos des voies ----------
+const cachePhotos = {};
+export async function getPhoto(voieId) {
+  if (voieId in cachePhotos) return cachePhotos[voieId];
+  let data = null;
+  if (MODE_DEMO) data = lireDemo().photos[voieId] || null;
+  else {
+    await fb();
+    const s = await fs.getDoc(fs.doc(db, "photos", voieId));
+    data = s.exists() ? s.data().data : null;
+  }
+  return (cachePhotos[voieId] = data);
+}
+export async function savePhoto(voieId, data) {
+  cachePhotos[voieId] = data;
+  if (MODE_DEMO) { lireDemo().photos[voieId] = data; ecrireDemo(); return; }
+  await fb();
+  await fs.setDoc(fs.doc(db, "photos", voieId), { data, majLe: maintenant() });
+}
+export async function supprimerPhoto(voieId) {
+  cachePhotos[voieId] = null;
+  if (MODE_DEMO) { delete lireDemo().photos[voieId]; ecrireDemo(); return; }
+  await fb();
+  await fs.deleteDoc(fs.doc(db, "photos", voieId));
+}
+
+// Réduit une image (fichier ou photo prise au téléphone) en JPEG léger, < 400 Ko
+export function compresserImage(fichier, cote = 1200) {
+  return new Promise((ok, ko) => {
+    const url = URL.createObjectURL(fichier);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let r = Math.min(1, cote / Math.max(img.width, img.height));
+      const cv = document.createElement("canvas");
+      for (let essai = 0; essai < 6; essai++) {
+        cv.width = Math.round(img.width * r); cv.height = Math.round(img.height * r);
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        for (const q of [0.75, 0.6, 0.45]) {
+          const data = cv.toDataURL("image/jpeg", q);
+          if (data.length < 400000) return ok(data);
+        }
+        r *= 0.75;
+      }
+      ko(new Error("Image trop lourde"));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); ko(new Error("Image illisible")); };
+    img.src = url;
+  });
 }
 
 // ---------- Annuaire (noms affichés pour choisir son binôme) ----------

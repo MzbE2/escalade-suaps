@@ -77,7 +77,8 @@ Ce que garantissent ces règles :
 1. **Étudiants** : collez votre liste `Nom;Prénom;Groupe` (ex. `DUPONT;Léa;Jeudi 12h`). Le groupe doit être écrit exactement pareil pour tous les étudiants d'un même créneau.
 2. **QR codes** : filtrez par groupe et imprimez les cartes.
 3. **Topo** : les 57 voies d'octobre 2026 (source Oblyk) sont préchargées. Vérifiez les couleurs claires (blanc, gris, beige), puis cliquez sur **Enregistrer le topo**.
-4. **En direct** : ouvrez votre première séance.
+4. **Photos** : dans l'onglet Topo, cliquez sur « ＋ Photo » à côté d'une voie. Sur téléphone, vous pouvez photographier la voie directement. La photo est compressée automatiquement, puis s'affiche pour l'étudiant quand il choisit la voie.
+5. **En direct** : ouvrez votre première séance.
 
 ## Rééquipement du mur (2 fois par an)
 
@@ -100,7 +101,7 @@ prof.html             espace enseignant (connexion Google)
 css/style.css         styles (clair / sombre automatique)
 js/topo.js            topo initial, couleurs, cotations, libellés   ← à personnaliser
 js/stats.js           calculs de progression (max, pyramide)
-js/db.js              accès Firestore (temps réel) / mode démo
+js/db.js              accès Firestore (temps réel, photos) / mode démo
 js/etudiant.js        logique page étudiant
 js/prof.js            logique espace enseignant
 js/firebase-config.js clés Firebase                                 ← à remplir
