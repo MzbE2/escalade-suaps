@@ -1,0 +1,72 @@
+rules_version = '2';
+// =====================================================================
+//  Règles de sécurité Firestore — Escalade SUAPS
+//  Comptes Gmail enseignants autorisés (en minuscules) : ajoutez-en dans la liste ci-dessous
+// =====================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function estProf() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in ["aurelievigeon@gmail.com", "mzubaloff@gmail.com", "florianeude@gmail.com"];
+    }
+    function etudiantExiste(code) {
+      return exists(/databases/$(database)/documents/etudiants/$(code));
+    }
+    // Un étudiant peut annuler un passage pendant 15 minutes
+    function annulable() {
+      return request.time < resource.data.ts + duration.value(15, 'm');
+    }
+    // Contrôle de la forme d'un passage envoyé par un étudiant
+    function passageValide(code) {
+      let d = request.resource.data;
+      return d.code == code
+        && d.ts == request.time
+        && d.mode in ['moulinette', 'tete']
+        && d.resultat in ['enchaine', 'pose', 'echec']
+        && d.keys().hasOnly(['id', 'code', 'etudiant', 'groupe', 'seanceId', 'date', 'ts',
+             'voieId', 'relais', 'couleur', 'cotation', 'nomVoie', 'secteur',
+             'mode', 'resultat', 'assureur', 'ressenti']);
+    }
+
+    // Topo et annuaire des binômes : lisibles par tous, modifiables par l'enseignant
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if estProf();
+    }
+
+    // Profils étudiants : le code (identifiant du document) sert de clé d'accès
+    match /etudiants/{code} {
+      allow get: if true;                 // lire UN profil si on connaît son code
+      allow list: if estProf();           // la liste complète (donc les codes) est réservée à l'enseignant
+      allow create, update, delete: if estProf();
+
+      // Carnet de l'étudiant
+      match /passages/{id} {
+        allow read: if true;
+        allow create: if estProf() || (etudiantExiste(code) && passageValide(code));
+        allow update: if estProf();
+        allow delete: if estProf() || annulable();
+      }
+    }
+
+    // Séances : ouvertes et clôturées par l'enseignant
+    match /seances/{seanceId} {
+      allow read: if true;
+      allow write: if estProf();
+
+      // Copie des passages pour le suivi en direct : lisible par l'enseignant seulement
+      match /passages/{id} {
+        allow read: if estProf();
+        allow create: if estProf() || (
+          etudiantExiste(request.resource.data.code)
+          && passageValide(request.resource.data.code)
+          && request.resource.data.seanceId == seanceId
+          && get(/databases/$(database)/documents/seances/$(seanceId)).data.ouverte == true);
+        allow update: if estProf();
+        allow delete: if estProf() || annulable();
+      }
+    }
+  }
+}
