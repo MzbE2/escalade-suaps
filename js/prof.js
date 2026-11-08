@@ -3,7 +3,7 @@
 // =====================================================================
 import * as DB from "./db.js";
 import {
-  SECTEURS, COULEURS, COTATIONS, TOUTES_PRISES, MODES, RESULTATS, RESSENTIS, libelle, rangCotation,
+  SECTEURS, COULEURS, COTATIONS, TOUTES_PRISES, CRENEAUX, MODES, RESULTATS, RESSENTIS, libelle, rangCotation,
   fmtDate, fmtHeure, esc
 } from "./topo.js";
 import { maxTete, maxMoulinette, pyramide, jour } from "./stats.js";
@@ -24,7 +24,11 @@ function toast(msg) {
 }
 const urlEtudiant = code => new URL("index.html#" + code, location.href).href;
 const puce = c => `<span class="puce" style="background:${COULEURS[c] || "#ccc"}" title="${esc(c)}"></span>`;
-const groupes = () => [...new Set(etudiants.flatMap(DB.groupesDe))].sort((a, b) => a.localeCompare(b, "fr"));
+const groupes = () => CRENEAUX;
+// Cases à cocher Jeudi / Vendredi (au moins une)
+const casesCreneaux = (prefixe, coches = []) => `<div class="ligne" style="gap:14px;min-height:44px">${CRENEAUX.map(g =>
+  `<label class="small" style="margin:0;font-weight:600;font-size:1rem;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" class="${prefixe}" value="${g}" style="width:auto" ${coches.includes(g) ? "checked" : ""}> ${g}</label>`).join("")}</div>`;
+const creneauxCoches = (zone, prefixe) => [...zone.querySelectorAll(`input.${prefixe}:checked`)].map(i => i.value);
 const dansGroupe = (e, g) => DB.groupesDe(e).includes(g);
 const sansAccent = t => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 // Retrouver un étudiant déjà inscrit (même nom + prénom) pour éviter les doublons
@@ -435,15 +439,14 @@ function vueEtudiants() {
         <form id="f-add" class="grille g3" style="align-items:end">
           <div><label>Nom</label><input id="a-nom" required></div>
           <div><label>Prénom</label><input id="a-prenom" required></div>
-          <div><label>Groupe(s) / créneau(x)</label><input id="a-groupe" list="dl-groupes" placeholder="ex. Jeudi 12h + Vendredi 12h" required></div>
-          <datalist id="dl-groupes">${groupes().map(g => `<option value="${esc(g)}">`).join("")}</datalist>
+          <div><label>Créneau(x)</label>${casesCreneaux("a-cr")}</div>
           <div><button class="primaire">Ajouter</button></div>
         </form>
       </div>
       <div class="carte">
         <h3>Import en liste</h3>
-        <p class="small muted">Une ligne par étudiant : <code>Nom;Prénom;Groupe</code> (copier-coller depuis un tableur, tabulations acceptées). Plusieurs créneaux : <code>DUPONT;Léa;Jeudi 12h;Vendredi 12h</code>. Un étudiant déjà inscrit n'est pas recréé : ses nouveaux créneaux sont ajoutés à son profil.</p>
-        <textarea id="import" rows="3" placeholder="DUPONT;Léa;Jeudi 12h"></textarea>
+        <p class="small muted">Une ligne par étudiant : <code>Nom;Prénom;Groupe</code> (copier-coller depuis un tableur, tabulations acceptées). Groupe = <code>Jeudi</code>, <code>Vendredi</code> ou les deux : <code>DUPONT;Léa;Jeudi;Vendredi</code>. Un étudiant déjà inscrit n'est pas recréé : ses nouveaux créneaux sont ajoutés à son profil.</p>
+        <textarea id="import" rows="3" placeholder="DUPONT;Léa;Jeudi"></textarea>
         <button id="btn-import" style="margin-top:8px">Importer</button>
       </div>
     </div>
@@ -469,7 +472,8 @@ function vueEtudiants() {
   c.querySelector("#f-add").onsubmit = async ev => {
     ev.preventDefault();
     const nom = c.querySelector("#a-nom").value, prenom = c.querySelector("#a-prenom").value;
-    const nouveaux = DB.lireGroupes(c.querySelector("#a-groupe").value);
+    const nouveaux = creneauxCoches(c, "a-cr");
+    if (!nouveaux.length) return toast("Cochez Jeudi, Vendredi ou les deux");
     const existant = dejaInscrit(nom, prenom);
     if (existant) {
       // pas de doublon : on ajoute le créneau à son profil existant (même code, même carnet)
@@ -489,8 +493,10 @@ function vueEtudiants() {
     const lignes = c.querySelector("#import").value.split("\n").map(l => l.split(/[;\t,]/).map(s => s.trim())).filter(l => l[0] && l[1]);
     if (!lignes.length) return toast("Rien à importer");
     let crees = 0, completes = 0;
+    const refusees = [];
     for (const [nom, prenom, ...reste] of lignes) {
       const gs = DB.lireGroupes(reste);
+      if (!gs.length) { refusees.push(`${prenom} ${nom}`); continue; }   // ni Jeudi ni Vendredi
       const existant = dejaInscrit(nom, prenom);
       if (existant) {
         const actuels = DB.groupesDe(existant), ajout = gs.filter(g => !actuels.includes(g));
@@ -502,6 +508,7 @@ function vueEtudiants() {
     }
     await apresChangement();
     toast(`${crees} étudiant(s) créé(s)${completes ? ` · ${completes} profil(s) complété(s) avec un nouveau créneau` : ""}`);
+    if (refusees.length) setTimeout(() => demander(`Non importé(s), créneau absent ou différent de Jeudi / Vendredi : ${refusees.join(", ")}.`, "OK"), 300);
   };
   const rech = c.querySelector("#rech");
   rech.oninput = () => { recherche = rech.value; vueEtudiants(); const r = contenu().querySelector("#rech"); r.focus(); r.setSelectionRange(r.value.length, r.value.length); };
@@ -535,12 +542,10 @@ async function ficheEtudiant(code) {
         <button id="fermer">✕</button>
       </div>
       <div class="ligne no-print" style="align-items:end;gap:8px;margin:6px 0 4px">
-        <div style="flex:1;min-width:240px"><label for="f-groupes">Créneaux de pratique</label>
-          <input id="f-groupes" list="dl-groupes-f" value="${esc(DB.groupesDe(e).join(" + "))}" placeholder="ex. Jeudi 12h + Vendredi 12h">
-          <datalist id="dl-groupes-f">${groupes().map(g => `<option value="${esc([...DB.groupesDe(e), g].filter((x, i, a) => a.indexOf(x) === i).join(" + "))}">`).join("")}</datalist></div>
+        <div style="flex:1;min-width:240px"><label>Créneaux de pratique</label>${casesCreneaux("f-cr", DB.groupesDe(e))}</div>
         <button id="f-groupes-ok">Enregistrer les créneaux</button>
       </div>
-      <p class="small muted no-print" style="margin:0 0 6px">Séparez les créneaux par « + ». L'étudiant garde son code et son carnet : ses voies du jeudi et du vendredi sont réunies ici.</p>
+      <p class="small muted no-print" style="margin:0 0 6px">Jeudi, Vendredi ou les deux. L'étudiant garde son code et son carnet : ses voies du jeudi et du vendredi sont réunies ici.</p>
       <div class="ligne" style="align-items:flex-start;gap:18px;margin:10px 0">
         <div id="qr-fiche"></div>
         <div class="grille g2" style="flex:1;min-width:260px">
@@ -568,8 +573,8 @@ async function ficheEtudiant(code) {
   modal.querySelector(".modal-fond").onclick = ev => { if (ev.target.classList.contains("modal-fond")) fermer(); };
   brancherEdition(modal, l, () => ficheEtudiant(code));
   modal.querySelector("#f-groupes-ok").onclick = async () => {
-    const gs = DB.lireGroupes(modal.querySelector("#f-groupes").value);
-    if (!gs.length) return toast("Indiquez au moins un créneau");
+    const gs = creneauxCoches(modal, "f-cr");
+    if (!gs.length) return toast("Cochez Jeudi, Vendredi ou les deux");
     await DB.modifierGroupes(code, gs);
     await charger(); await DB.majAnnuaire(etudiants);
     toast(`Créneaux enregistrés : ${gs.join(" + ")}`);

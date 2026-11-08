@@ -21,6 +21,14 @@ export const COTATIONS = ["3a","3b","3c","4a","4b","4c","5a","5b","5c","6a","6b"
   .flatMap(c => [c, c + "+"]);
 export const rangCotation = c => COTATIONS.indexOf(String(c || "").trim().toLowerCase());
 
+// Créneaux de pratique : uniquement le jeudi et/ou le vendredi
+export const CRENEAUX = ["Jeudi", "Vendredi"];
+// « jeudi », « JEUDI 12h », « Jeu » → « Jeudi » ; tout autre texte → null
+export const normaliserCreneau = t => {
+  const x = String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  return CRENEAUX.find(c => x.startsWith(c.toLowerCase().slice(0, 3))) || null;
+};
+
 export const MODES = [["moulinette", "Moulinette"], ["tete", "En tête"]];
 export const RESULTATS = [["enchaine", "Enchaîné", "ok"], ["pose", "Avec pose", "warn"], ["echec", "Pas au sommet", "bad"]];
 export const RESSENTIS = [["facile", "Facile"], ["adapte", "Adapté"], ["difficile", "Difficile"], ["tropdur", "Trop dur"]];

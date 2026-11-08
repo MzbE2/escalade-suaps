@@ -11,7 +11,7 @@
 //    photos/{voieId}                 photo compressée d'une voie (une par document)
 // =====================================================================
 import { firebaseConfig } from "./firebase-config.js";
-import { TOPO_INITIAL, genererCode } from "./topo.js";
+import { TOPO_INITIAL, genererCode, CRENEAUX, normaliserCreneau } from "./topo.js";
 
 export const MODE_DEMO = String(firebaseConfig.apiKey || "").includes("COLLER");
 
@@ -33,7 +33,11 @@ const maintenant = () => new Date().toISOString();
 // Un étudiant peut pratiquer sur plusieurs créneaux : groupes = ["Jeudi", "Vendredi"]
 // (les anciens profils n'ont que « groupe » : on le lit comme une liste d'un élément)
 export const groupesDe = e => (Array.isArray(e?.groupes) && e.groupes.length ? e.groupes : (e?.groupe ? [e.groupe] : []));
-export const lireGroupes = v => [...new Set((Array.isArray(v) ? v : String(v || "").split(/[+,;\/]/)).map(g => String(g).trim()).filter(Boolean))];
+// Ne garde que les créneaux autorisés (Jeudi, Vendredi), dans cet ordre
+export const lireGroupes = v => {
+  const lus = (Array.isArray(v) ? v : String(v || "").split(/[+,;\/]/)).map(normaliserCreneau);
+  return CRENEAUX.filter(c => lus.includes(c));
+};
 const champsGroupes = groupes => ({ groupes, groupe: groupes.join(" + ") });
 export const nomCourt = e => `${e.prenom} ${String(e.nom || "").charAt(0).toUpperCase()}.`;
 
