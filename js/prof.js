@@ -7,7 +7,7 @@ import {
   fmtDate, fmtHeure, esc
 } from "./topo.js";
 import { maxTete, maxMoulinette, pyramide, jour, meilleure, enchaine } from "./stats.js";
-import { SEMESTRES, BAREMES, pointsBareme, noteCritere, notePartie, resumePublic, nbItems, fmtNote } from "./evaluation.js";
+import { SEMESTRES, BAREMES, NIVEAUX, pointsBareme, noteCritere, notePartie, resumePublic, nbItems, niveauxSaisis, fmtNote } from "./evaluation.js";
 
 const app = document.getElementById("app");
 const modal = document.getElementById("modal");
@@ -559,11 +559,16 @@ function panneauEval() {
     </div>
     <nav class="onglets ev-parties">${S.parties.map(pa => { const n = notePartie(pa, evals[e.code]?.[evSem]?.[pa.id], ctx);
       return `<button data-partie="${pa.id}" class="${pa.id === partie.id ? "actif" : ""}">${pa.court} <span class="pastille ${n.complet ? "ok" : ""}">${n.notes ? fmtNote(n.total) : "–"}/20</span></button>`; }).join("")}</nav>
+    <div class="ev-legende">${NIVEAUX.map((n, l) => `<span><i class="niv l${l}"></i>${esc(n)}</span>`).join("")}</div>
     ${partie.note ? `<p class="small muted" style="margin:4px 2px 10px">${esc(partie.note)}</p>` : ""}
     <div class="ev-crits">${np.detail.map(({ cr, n }) => carteCritere(cr, etats[cr.id] || {}, n, ctx)).join("")}</div>
     <div class="carte ev-total ligne espace">
       <span><b>${partie.titre}</b>${np.complet ? "" : ` <span class="small muted">· ${np.notes}/${np.attendus} critères notés</span>`}</span>
       <span class="ev-total-val">${np.notes ? fmtNote(np.total) : "—"} <small>/ 20</small></span>
+    </div>
+    <div class="carte no-print">
+      <label for="ev-comment" style="margin-top:0">Commentaire (privé, jamais montré à l'étudiant) · ${S.court}</label>
+      <textarea id="ev-comment" rows="3" placeholder="Remarques, rappels de sécurité, points à revoir…">${esc(evals[e.code]?.[evSem]?.commentaire || "")}</textarea>
     </div>
     <div class="ligne espace no-print" style="margin-top:4px">
       <button id="ev-prec2" ${i <= 0 ? "disabled" : ""}>◀ Précédent</button>
@@ -581,24 +586,32 @@ function panneauEval() {
   // Modifications d'un critère
   const maj = (id, f) => { const et = (etats[id] ||= {}); f(et); sauverEval(e.code); rafraichir(); };
   const rafraichir = () => { const y = window.scrollY; vueEvaluation(); window.scrollTo(0, y); };
-  z.querySelectorAll("[data-item]").forEach(b => b.onclick = () => maj(b.dataset.crit, et => {
-    const k = +b.dataset.item; et.c = (et.c || []).includes(k) ? et.c.filter(x => x !== k) : [...(et.c || []), k];
-    et.p = null;   // cocher recalcule la note proposée
+  // Une couleur par sous-critère ; re-toucher la même couleur l'efface
+  z.querySelectorAll("[data-niv]").forEach(b => b.onclick = () => maj(b.dataset.crit, et => {
+    const k = b.dataset.item, l = +b.dataset.niv;
+    et.l ||= {};
+    if (et.l[k] === l) delete et.l[k]; else et.l[k] = l;
+    delete et.c;   // ancien format (cases à cocher)
+    et.p = null;   // la note suit les couleurs
   }));
+  const com = z.querySelector("#ev-comment");
+  com.oninput = () => {
+    ((evals[e.code] ||= {})[evSem] ||= {}).commentaire = com.value;
+    sauverEval(e.code);
+  };
   z.querySelectorAll("[data-pas]").forEach(b => b.onclick = () => maj(b.dataset.crit, et => {
     const cr = partie.criteres.find(x => x.id === b.dataset.crit);
     const actuel = noteCritere(cr, et, ctx)?.pts ?? 0;
     et.p = Math.min(cr.max, Math.max(0, actuel + +b.dataset.pas));
   }));
-  z.querySelectorAll("[data-rep]").forEach(b => b.onclick = () => maj(b.dataset.crit, et => { et.p = +b.dataset.rep; }));
   z.querySelectorAll("[data-auto]").forEach(b => b.onclick = () => maj(b.dataset.crit, et => { et.p = null; }));
 }
 
 function carteCritere(cr, et, n, ctx) {
-  const coches = et.c || [];
-  const source = !n ? "Pas encore noté" : n.source === "manuel" ? "Note ajustée" : n.source === "bareme" ? "Calculée avec le barème" : `Proposée : ${coches.length}/${nbItems(cr)} coché${coches.length > 1 ? "s" : ""}`;
-  let k = -1;
-  let bareme = "";
+  const niv = et.l || {}, nb = niveauxSaisis(et).length;
+  const source = !n ? "Pas encore noté" : n.source === "manuel" ? "Note ajustée à la main"
+    : n.source === "bareme" ? "Calculée avec le barème" : `Moyenne de ${nb}/${nbItems(cr)} sous-critère${nb > 1 ? "s" : ""} évalué${nb > 1 ? "s" : ""}`;
+  let k = -1, bareme = "";
   if (cr.auto || cr.indice) {
     const b = BAREMES[cr.auto || cr.indice], cot = ctx.maxEnchaine?.[b.mode];
     const pts = pointsBareme(cr.auto || cr.indice, cot, ctx.sexe);
@@ -609,19 +622,21 @@ function carteCritere(cr, et, n, ctx) {
     <div class="ev-crit-tete">
       <div><b>${esc(cr.titre)}</b><div class="small muted">${source}${n && n.source === "manuel" ? ` · <button class="lien" data-auto data-crit="${cr.id}">↺ revenir au calcul</button>` : ""}</div></div>
       <div class="ev-pts">
-        <button data-pas="-0.5" data-crit="${cr.id}" aria-label="Retirer un demi-point">−</button>
+        <button data-pas="-0.5" data-crit="${cr.id}" aria-label="Retirer un demi-point" title="Ajuster à la main">−</button>
         <span><b>${n ? fmtNote(n.pts) : "—"}</b>/${cr.max}</span>
-        <button data-pas="0.5" data-crit="${cr.id}" aria-label="Ajouter un demi-point">+</button>
+        <button data-pas="0.5" data-crit="${cr.id}" aria-label="Ajouter un demi-point" title="Ajuster à la main">+</button>
       </div>
     </div>
     ${bareme}
-    ${cr.reperes ? `<div class="ev-reperes">${cr.reperes.map(([a, b, t]) =>
-      `<button data-rep="${b}" data-crit="${cr.id}" class="${n && n.pts >= a && n.pts <= b ? "actif" : ""}" title="${esc(t)}"><b>${a === b ? a : a + "–" + b}</b> ${esc(t)}</button>`).join("")}</div>` : ""}
     ${cr.sections.map(([titre, items]) => `
       ${titre ? `<div class="ev-section">${esc(titre)}</div>` : ""}
-      <div class="ev-items">${items.map(t => { k++;
-        return cr.auto ? `<span class="ev-item info">${esc(t)}</span>`
-          : `<button class="ev-item ${coches.includes(k) ? "on" : ""}" data-item="${k}" data-crit="${cr.id}">${coches.includes(k) ? "✓ " : ""}${esc(t)}</button>`; }).join("")}</div>`).join("")}
+      ${items.map(t => { k++;
+        if (cr.auto) return `<div class="ev-ligne"><span class="muted">${esc(t)}</span></div>`;
+        const cur = niv[k];
+        return `<div class="ev-ligne"><span>${esc(t)}</span><span class="niveaux">${[0, 1, 2, 3, 4].map(l =>
+          `<button class="niv l${l} ${cur === l ? "on" : ""}" data-niv="${l}" data-item="${k}" data-crit="${cr.id}" title="${esc(NIVEAUX[l])}" aria-label="${esc(t)} : ${esc(NIVEAUX[l])}"></button>`).join("")}</span></div>`;
+      }).join("")}`).join("")}
+    ${cr.reperes ? `<p class="ev-aide">Repères : ${cr.reperes.map(([a, b, t]) => `<b>${a === b ? a : a + "–" + b}</b> ${esc(t)}`).join(" · ")}</p>` : ""}
   </div>`;
 }
 

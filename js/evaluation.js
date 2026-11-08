@@ -115,7 +115,13 @@ export function pointsBareme(cle, cotation, sexe) {
 export const nbItems = c => c.sections.reduce((n, [, l]) => n + l.length, 0);
 const demiPoint = x => Math.round(x * 2) / 2;
 
-// Note d'un critère. etat = { c: [indices cochés], p: note ajustée à la main ou null }
+// 5 couleurs, comme l'appli danse : niveau 0 à 4 pour chaque sous-critère
+export const NIVEAUX = ["Non acquis", "Non acquis → en cours", "En cours d'acquisition", "En cours → acquis", "Acquis"];
+// Niveaux saisis d'un critère : { "0": 3, "4": 1 } → [3, 1] (les items laissés vides ne comptent pas)
+export const niveauxSaisis = etat => Object.values(etat?.l || {}).filter(v => Number.isInteger(v) && v >= 0 && v <= 4);
+
+// Note d'un critère. etat = { l: { indexItem: niveau 0-4 }, p: note ajustée à la main ou null }
+// Note = moyenne des niveaux saisis ramenée sur les points du critère, arrondie au demi-point.
 // ctx = { maxEnchaine } pour les calculs automatiques. Retourne { pts, source } ou null.
 export function noteCritere(crit, etat = {}, ctx = {}) {
   if (typeof etat.p === "number") return { pts: Math.min(crit.max, Math.max(0, etat.p)), source: "manuel" };
@@ -123,9 +129,10 @@ export function noteCritere(crit, etat = {}, ctx = {}) {
     const b = pointsBareme(crit.auto, ctx.maxEnchaine?.[BAREMES[crit.auto].mode], ctx.sexe);
     return b === null ? null : { pts: b, source: "bareme" };
   }
-  const coches = (etat.c || []).length;
-  if (!coches) return null;
-  return { pts: demiPoint(crit.max * coches / nbItems(crit)), source: "coches" };
+  const niv = niveauxSaisis(etat);
+  if (!niv.length) return null;
+  const moyenne = niv.reduce((a, b) => a + b, 0) / niv.length;   // 0 à 4
+  return { pts: demiPoint(crit.max * moyenne / 4), source: "couleurs" };
 }
 
 // Note d'une partie (/20, bonus compris, plafonnée à 20)
