@@ -90,6 +90,8 @@ async function connecter(code, interactif) {
       binomes = l.filter(n => n !== DB.nomCourt(E));
       majListeAssureurs();
     }));
+    // Notes publiées par l'enseignant (grands critères seulement)
+    arrets.push(await DB.ecouterNotesPubliees(E.code, n => { mesNotes = n; if (onglet === "progression") vueProgression(); }));
     arrets.push(await DB.ecouterPassagesEtudiant(E.code, l => { passages = l; majSeance(); if (onglet === "progression") vueProgression(); }));
     return true;
   } catch (err) {
@@ -301,6 +303,22 @@ async function enregistrer() {
 }
 
 // ---------------- Onglet « Progression » ----------------
+let mesNotes = null;
+const fmtN = x => (x === null || x === undefined) ? "—" : String(x).replace(".", ",");
+// Évaluation publiée : uniquement les grands critères et la note de chaque partie
+function carteNotes() {
+  const sems = ["s2", "s1"].map(k => mesNotes?.[k]).filter(Boolean);
+  if (!sems.length) return "";
+  return sems.map(S => `
+    <div class="carte mes-notes">
+      <h3>Mon évaluation · ${esc(S.titre)}</h3>
+      ${S.parties.map(pa => `<div class="partie">
+        <div class="partie-tete"><span>${esc(pa.titre)}</span><b class="val">${fmtN(pa.total)}<small class="muted"> /20</small></b></div>
+        ${pa.criteres.map(cr => `<div class="crit"><span>${esc(cr.titre)}</span><b>${cr.pts === null ? "—" : fmtN(cr.pts)}${cr.bonus ? " (bonus)" : ""} / ${cr.max}</b></div>`).join("")}
+      </div>`).join("")}
+      <p class="small muted" style="margin:6px 0 0">« — » : pas encore évalué.</p>
+    </div>`).join("");
+}
 function vueProgression() {
   const c = document.getElementById("contenu");
   if (!c) return;
@@ -308,6 +326,7 @@ function vueProgression() {
   const pyr = pyramide(passages);
   const maxBarre = Math.max(1, ...pyr.map(([, n]) => n.tete + n.moulinette));
   c.innerHTML = `
+    ${carteNotes()}
     <div class="grille g2" style="margin-top:14px">
       <div class="stat accent"><div class="val">${maxTete(passages) || "—"}</div><div class="lbl">Meilleure en tête</div></div>
       <div class="stat"><div class="val">${maxMoulinette(passages) || "—"}</div><div class="lbl">Meilleure en moulinette</div></div>

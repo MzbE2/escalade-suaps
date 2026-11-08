@@ -261,3 +261,79 @@ button.icone { padding: 4px 8px; font-size: .9rem; }
   #modal #fermer { display: none; }
   .synth-etu { break-inside: avoid; }
 }
+
+/* ---------- Onglet Évaluation (enseignant) ---------- */
+.segment { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.segment button { border: 0; border-radius: 0; background: none; padding: 8px 14px; font-weight: 600; color: var(--ink-2); }
+.segment button + button { border-left: 1px solid var(--line); }
+.segment button.actif { background: var(--accent); color: #fff; }
+.segment.petit button { padding: 5px 12px; font-size: .9rem; }
+.ev-barre { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.ev-barre #ev-recap { margin-left: auto; }
+.ev-publie { display: inline-flex; align-items: center; gap: 8px; margin: 0; padding: 7px 12px; border-radius: 10px; border: 1px solid var(--line); font-weight: 600; cursor: pointer; font-size: .92rem; }
+.ev-publie input { width: auto; margin: 0; }
+.ev-publie.on { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+.ev-grille { display: grid; grid-template-columns: 280px 1fr; gap: 14px; align-items: start; }
+.ev-liste { position: sticky; top: 10px; max-height: calc(100vh - 20px); overflow: auto; padding: 8px; }
+.ev-liste-noms { display: grid; gap: 2px; }
+.ev-nom { display: flex; justify-content: space-between; align-items: center; gap: 6px; text-align: left; border: 0; background: none; padding: 8px 8px; border-radius: 8px; font-weight: 400; }
+.ev-nom:hover { background: var(--surface-2); }
+.ev-nom.actif { background: var(--accent-soft); outline: 2px solid var(--accent); }
+.ev-nom .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-nom .mini { display: inline-flex; gap: 3px; flex-shrink: 0; }
+.ev-nom .mini i { font-style: normal; font-size: .75rem; min-width: 30px; text-align: center; padding: 2px 3px; border-radius: 6px; background: var(--surface-2); color: var(--ink-2); }
+.ev-nom .mini i.part { background: var(--warn-soft); color: var(--warn); }
+.ev-nom .mini i.ok { background: var(--ok-soft); color: var(--ok); font-weight: 700; }
+.pt-actif { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); margin-right: 6px; box-shadow: 0 0 0 3px var(--ok-soft); vertical-align: middle; }
+.ev-choix-mobile { display: none; }
+.ev-tete { padding: 12px 14px; }
+.ev-nav { font-size: 1.2rem; padding: 8px 14px; }
+.ev-parties { margin: 0 0 6px; }
+.ev-parties .pastille { margin-left: 4px; }
+.ev-crits { display: grid; gap: 10px; }
+.ev-crit { margin: 0; padding: 12px 14px; border-left: 4px solid var(--line); }
+.ev-crit.note { border-left-color: var(--ok); }
+.ev-crit-tete { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.ev-pts { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.ev-pts button { width: 44px; height: 44px; padding: 0; font-size: 1.4rem; line-height: 1; border-radius: 10px; }
+.ev-pts span { min-width: 64px; text-align: center; font-size: 1.05rem; }
+.ev-pts span b { font-size: 1.5rem; }
+.ev-reperes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ev-reperes button { font-size: .82rem; padding: 6px 10px; border-radius: 8px; font-weight: 400; text-align: left; }
+.ev-reperes button.actif { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.ev-section { font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); margin: 10px 0 4px; font-weight: 700; }
+.ev-items { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ev-item { font-size: .9rem; padding: 8px 12px; border-radius: 999px; font-weight: 400; min-height: 40px; }
+.ev-item.on { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); font-weight: 600; }
+.ev-item.info { border: 1px dashed var(--line); color: var(--ink-2); display: inline-flex; align-items: center; }
+.ev-bareme { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); font-size: .9rem; }
+.ev-total { margin: 10px 0; align-items: center; }
+.ev-total-val { font-size: 1.8rem; font-weight: 800; }
+.ev-total-val small { font-size: 1rem; font-weight: 400; color: var(--ink-2); }
+@media (max-width: 900px) {
+  .ev-grille { grid-template-columns: 1fr; }
+  .ev-liste { position: static; max-height: none; padding: 8px; }
+  .ev-liste-noms, .ev-liste p { display: none; }
+  .ev-choix-mobile { display: block; }
+  .ev-barre #ev-recap { margin-left: 0; }
+}
+
+/* ---------- Mon évaluation (étudiant) ---------- */
+.mes-notes .partie { border-top: 1px solid var(--line); padding: 10px 0; }
+.mes-notes .partie:first-of-type { border-top: 0; }
+.mes-notes .partie-tete { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.mes-notes .partie-tete b.val { font-size: 1.4rem; }
+.mes-notes .crit { display: flex; justify-content: space-between; gap: 10px; font-size: .92rem; color: var(--ink-2); padding: 3px 0; }
+.mes-notes .crit b { color: var(--ink); white-space: nowrap; }
+.ev-grille { grid-template-columns: 280px minmax(0, 1fr); }
+.ev-grille > * { min-width: 0; }
+.segment button { white-space: nowrap; }
+.ev-parties { overflow-x: auto; flex-wrap: nowrap; }
+.ev-parties button { white-space: nowrap; }
+@media (max-width: 900px) {
+  .ev-grille { grid-template-columns: minmax(0, 1fr); }
+  .ev-crit-tete { flex-wrap: wrap; }
+  .ev-pts { margin-left: auto; }
+  .ev-tete h2 { font-size: 1.15rem; }
+  .ev-nav { padding: 6px 10px; }
+}

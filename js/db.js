@@ -217,6 +217,7 @@ export async function supprimerEtudiant(code) {
     const m = lireDemo();
     delete m.etudiants[code];
     for (const [id, p] of Object.entries(m.passages)) if (p.code === code) delete m.passages[id];
+    delete (m.evaluations || {})[code]; delete (m.notes || {})[code];
     ecrireDemo(); return;
   }
   await fb();
@@ -226,6 +227,8 @@ export async function supprimerEtudiant(code) {
     if (p.seanceId) await fs.deleteDoc(fs.doc(db, "seances", p.seanceId, "passages", d.id));
     await fs.deleteDoc(d.ref);
   }
+  await fs.deleteDoc(fs.doc(db, "evaluations", code));
+  await fs.deleteDoc(fs.doc(db, "notes", code));
   await fs.deleteDoc(fs.doc(db, "etudiants", code));
 }
 
@@ -367,4 +370,44 @@ export async function listerPassagesSeance(seanceId) {
   await fb();
   const s = await fs.getDocs(fs.collection(db, "seances", seanceId, "passages"));
   return parDate(s.docs.map(d => d.data()));
+}
+
+// =====================================================================
+//  Évaluation
+//  - evaluations/{code} : grille détaillée (cases cochées, notes) — enseignant seulement
+//  - notes/{code}       : résumé publié (grands critères) — lu par l'étudiant avec son code
+//  - config/evaluation  : semestres publiés { publie: { s1: bool, s2: bool } }
+// =====================================================================
+export async function listerEvaluations() {
+  if (MODE_DEMO) return clone(lireDemo().evaluations || {});
+  await fb();
+  const s = await fs.getDocs(fs.collection(db, "evaluations"));
+  return Object.fromEntries(s.docs.map(d => [d.id, d.data()]));
+}
+export async function saveEvaluation(code, data) {
+  if (MODE_DEMO) { (lireDemo().evaluations ||= {})[code] = clone(data); ecrireDemo(); return; }
+  await fb();
+  await fs.setDoc(fs.doc(db, "evaluations", code), { ...data, majLe: maintenant() });
+}
+export async function getConfigEvaluation() {
+  if (MODE_DEMO) return clone(lireDemo().configEval || { publie: {} });
+  await fb();
+  const s = await fs.getDoc(fs.doc(db, "config", "evaluation"));
+  return s.exists() ? s.data() : { publie: {} };
+}
+export async function saveConfigEvaluation(cfg) {
+  if (MODE_DEMO) { lireDemo().configEval = clone(cfg); ecrireDemo(); return; }
+  await fb();
+  await fs.setDoc(fs.doc(db, "config", "evaluation"), cfg);
+}
+// Résumé visible par l'étudiant : { s1: {...} | null, s2: {...} | null }
+export async function saveNotesPubliees(code, notes) {
+  if (MODE_DEMO) { (lireDemo().notes ||= {})[code] = clone(notes); ecrireDemo(); return; }
+  await fb();
+  await fs.setDoc(fs.doc(db, "notes", code), notes);
+}
+export async function ecouterNotesPubliees(code, cb) {
+  if (MODE_DEMO) return ecouterDemo(() => cb(clone((lireDemo().notes || {})[code] || null)));
+  await fb();
+  return fs.onSnapshot(fs.doc(db, "notes", code), s => cb(s.exists() ? s.data() : null), e => { console.error(e); cb(null); });
 }

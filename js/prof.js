@@ -6,7 +6,8 @@ import {
   SECTEURS, COULEURS, COTATIONS, TOUTES_PRISES, CRENEAUX, MODES, RESULTATS, RESSENTIS, libelle, rangCotation,
   fmtDate, fmtHeure, esc
 } from "./topo.js";
-import { maxTete, maxMoulinette, pyramide, jour } from "./stats.js";
+import { maxTete, maxMoulinette, pyramide, jour, meilleure, enchaine } from "./stats.js";
+import { SEMESTRES, BAREMES, pointsBareme, noteCritere, notePartie, resumePublic, nbItems, fmtNote } from "./evaluation.js";
 
 const app = document.getElementById("app");
 const modal = document.getElementById("modal");
@@ -114,12 +115,15 @@ async function charger() {
 function rendre() {
   app.innerHTML = `
     <nav class="onglets no-print">
-      ${[["direct", "● En direct"], ["seances", "Séances"], ["etudiants", `Étudiants (${etudiants.length})`], ["qr", "QR codes"], ["topo", "Topo"]]
+      ${[["direct", "● En direct"], ["seances", "Séances"], ["etudiants", `Étudiants (${etudiants.length})`], ["evaluation", "Évaluation"], ["qr", "QR codes"], ["topo", "Topo"]]
         .map(([id, l]) => `<button data-o="${id}" class="${onglet === id ? "actif" : ""}">${l}</button>`).join("")}
     </nav>
     <section id="contenu"></section>`;
-  app.querySelectorAll("[data-o]").forEach(b => b.onclick = () => { onglet = b.dataset.o; rendre(); });
-  ({ direct: vueDirect, seances: vueSeances, etudiants: vueEtudiants, qr: vueQR, topo: vueTopo })[onglet]();
+  app.querySelectorAll("[data-o]").forEach(b => b.onclick = () => {
+    if (b.dataset.o === "evaluation" && onglet !== "evaluation") evals = null;   // recharge (nouvelles voies, nouveaux étudiants)
+    onglet = b.dataset.o; rendre();
+  });
+  ({ direct: vueDirect, seances: vueSeances, etudiants: vueEtudiants, evaluation: vueEvaluation, qr: vueQR, topo: vueTopo })[onglet]();
 }
 const contenu = () => document.getElementById("contenu");
 
@@ -433,6 +437,234 @@ function exporterPassages(l, nom) {
   a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
   a.download = `escalade-${nom}.csv`.replace(/[^\w.-]+/g, "_");
   a.click();
+}
+
+// ================= ÉVALUATION =================
+// Les données détaillées restent côté enseignant ; l'étudiant ne reçoit que les grands critères, après publication.
+let evals = null, cfgEval = { publie: {} }, maxParCode = {};
+let evSem = "s1", evPartie = "inv", evCode = null, evGroupe = "";
+const minuteurs = {};
+
+async function chargerEvaluation() {
+  const [ev, cfg, ...carnets] = await Promise.all([
+    DB.listerEvaluations(), DB.getConfigEvaluation(), ...etudiants.map(e => DB.listerPassagesEtudiant(e.code))]);
+  evals = ev; cfgEval = { publie: {}, ...cfg };
+  etudiants.forEach((e, i) => {
+    maxParCode[e.code] = { toutes: meilleure(carnets[i], enchaine), tete: maxTete(carnets[i]), moulinette: maxMoulinette(carnets[i]) };
+  });
+}
+const ctxEval = e => ({ sexe: e.sexe, maxEnchaine: maxParCode[e.code] || {} });
+const etatsDe = (code, sem, partie) => ((evals[code] ||= {})[sem] ||= {})[partie] ||= {};
+const notesPubliees = e => Object.fromEntries(Object.keys(SEMESTRES).map(sm =>
+  [sm, cfgEval.publie?.[sm] ? resumePublic(sm, evals[e.code]?.[sm], ctxEval(e)) : null]));
+// Actif = a enregistré une voie dans la séance suivie il y a moins de 15 min
+const actifs = () => new Set(passagesLive.filter(p => Date.now() - new Date(p.date) < 15 * 60000).map(p => p.code));
+
+function sauverEval(code) {
+  const statut = document.getElementById("ev-statut");
+  if (statut) statut.textContent = "Enregistrement…";
+  clearTimeout(minuteurs[code]);
+  const donnees = evals[code];   // la version à enregistrer, même si l'onglet est rechargé entre-temps
+  minuteurs[code] = setTimeout(async () => {
+    try {
+      await DB.saveEvaluation(code, donnees);
+      const e = etudiants.find(x => x.code === code);
+      if (e && Object.values(cfgEval.publie || {}).some(Boolean)) await DB.saveNotesPubliees(code, notesPubliees(e));
+      const st = document.getElementById("ev-statut"); if (st) st.textContent = "✓ Enregistré";
+    } catch (err) {
+      console.error(err);
+      const st = document.getElementById("ev-statut"); if (st) st.textContent = "⚠ Non enregistré";
+      toast("Évaluation non enregistrée : vérifiez la connexion.");
+    }
+  }, 600);
+}
+
+async function vueEvaluation() {
+  const c = contenu();
+  if (!evals) {
+    c.innerHTML = `<div class="carte"><p class="muted">Chargement des évaluations…</p></div>`;
+    try { await chargerEvaluation(); } catch (e) { console.error(e); c.innerHTML = `<div class="carte"><p>Impossible de charger les évaluations.</p></div>`; return; }
+    if (onglet !== "evaluation") return;
+  }
+  const liste = etudiants.filter(e => !evGroupe || dansGroupe(e, evGroupe));
+  if (!liste.find(e => e.code === evCode)) evCode = liste[0]?.code || null;
+  const S = SEMESTRES[evSem], publie = !!cfgEval.publie?.[evSem], act = actifs();
+  c.innerHTML = `
+    <div class="carte ev-barre no-print">
+      <div class="segment">${Object.entries(SEMESTRES).map(([k, v]) => `<button data-sem="${k}" class="${k === evSem ? "actif" : ""}">${v.court}</button>`).join("")}</div>
+      <select id="ev-groupe" style="width:auto"><option value="">Jeudi + Vendredi</option>${CRENEAUX.map(g => `<option ${g === evGroupe ? "selected" : ""}>${g}</option>`).join("")}</select>
+      <label class="ev-publie ${publie ? "on" : ""}"><input type="checkbox" id="ev-publier" ${publie ? "checked" : ""}> ${publie ? "👁 Notes visibles par les étudiants" : "🔒 Notes cachées aux étudiants"}</label>
+      <button id="ev-recap">📋 Récapitulatif</button>
+    </div>
+    ${liste.length ? `<div class="ev-grille">
+      <aside class="carte ev-liste">
+        <select id="ev-choix" class="ev-choix-mobile">${liste.map(e => `<option value="${e.code}" ${e.code === evCode ? "selected" : ""}>${esc(e.prenom)} ${esc(e.nom)}</option>`).join("")}</select>
+        <div class="ev-liste-noms">${liste.map(e => {
+          const ctx = ctxEval(e);
+          return `<button class="ev-nom ${e.code === evCode ? "actif" : ""}" data-ev="${e.code}">
+            <span class="n">${act.has(e.code) ? `<span class="pt-actif" title="Grimpe en ce moment"></span>` : ""}${esc(e.prenom)} <b>${esc(e.nom)}</b></span>
+            <span class="mini">${S.parties.map(pa => { const np = notePartie(pa, evals[e.code]?.[evSem]?.[pa.id], ctx);
+              return `<i class="${np.complet ? "ok" : np.notes ? "part" : ""}" title="${esc(pa.titre)}">${np.notes ? fmtNote(np.total) : "–"}</i>`; }).join("")}</span>
+          </button>`; }).join("")}</div>
+        <p class="small muted" style="margin:8px 4px 0">Colonnes : ${S.parties.map(p => p.court).join(" · ")}. <span class="pt-actif"></span> = a grimpé il y a moins de 15 min.</p>
+      </aside>
+      <div id="ev-panneau"></div>
+    </div>` : `<div class="carte vide">Aucun étudiant${evGroupe ? " sur ce créneau" : ""}.</div>`}`;
+  c.querySelectorAll("[data-sem]").forEach(b => b.onclick = () => { evSem = b.dataset.sem; vueEvaluation(); });
+  c.querySelector("#ev-groupe").onchange = ev => { evGroupe = ev.target.value; vueEvaluation(); };
+  c.querySelectorAll("[data-ev]").forEach(b => b.onclick = () => { evCode = b.dataset.ev; vueEvaluation(); });
+  const ch = c.querySelector("#ev-choix"); if (ch) ch.onchange = () => { evCode = ch.value; vueEvaluation(); };
+  c.querySelector("#ev-recap").onclick = () => recapEvaluation();
+  c.querySelector("#ev-publier").onchange = async ev => {
+    const on = ev.target.checked;
+    const ok = await demander(on
+      ? `Rendre visibles les notes du ${S.titre} ? Chaque étudiant verra ses notes par grand critère (sans le détail des sous-critères), y compris les critères pas encore notés (affichés « — »).`
+      : `Cacher à nouveau les notes du ${S.titre} aux étudiants ?`, on ? "Publier" : "Cacher");
+    if (!ok) { ev.target.checked = !on; return; }
+    cfgEval.publie = { ...cfgEval.publie, [evSem]: on };
+    try {
+      await DB.saveConfigEvaluation(cfgEval);
+      await Promise.all(etudiants.map(e => DB.saveNotesPubliees(e.code, notesPubliees(e))));
+      toast(on ? "Notes publiées" : "Notes cachées");
+    } catch (err) { console.error(err); toast("Publication impossible : vérifiez la connexion et les règles Firestore."); }
+    vueEvaluation();
+  };
+  if (evCode) panneauEval();
+}
+
+function panneauEval() {
+  const z = document.getElementById("ev-panneau");
+  const liste = etudiants.filter(e => !evGroupe || dansGroupe(e, evGroupe));
+  const i = liste.findIndex(e => e.code === evCode), e = liste[i];
+  if (!z || !e) return;
+  const S = SEMESTRES[evSem], ctx = ctxEval(e), mx = maxParCode[e.code] || {};
+  const partie = S.parties.find(p => p.id === evPartie) || S.parties[0];
+  const etats = etatsDe(e.code, evSem, partie.id);
+  const np = notePartie(partie, etats, ctx);
+  z.innerHTML = `
+    <div class="carte ev-tete">
+      <div class="ligne espace" style="align-items:center">
+        <button class="ev-nav" id="ev-prec" ${i <= 0 ? "disabled" : ""} title="Étudiant précédent">◀</button>
+        <div style="flex:1;text-align:center">
+          <h2 style="margin:0">${esc(e.prenom)} ${esc(e.nom)}</h2>
+          <div class="small muted">${DB.groupesDe(e).join(" · ")} · max enchaîné : moulinette <b>${mx.moulinette || "—"}</b> · tête <b>${mx.tete || "—"}</b></div>
+        </div>
+        <button class="ev-nav" id="ev-suiv" ${i >= liste.length - 1 ? "disabled" : ""} title="Étudiant suivant">▶</button>
+      </div>
+      <div class="ligne" style="justify-content:center;gap:8px;margin-top:8px">
+        <span class="small muted">Barème :</span>
+        <div class="segment petit">${[["F", "Fille"], ["G", "Garçon"]].map(([k, l]) => `<button data-sexe="${k}" class="${e.sexe === k ? "actif" : ""}">${l}</button>`).join("")}</div>
+        <span id="ev-statut" class="small muted" style="min-width:90px"></span>
+      </div>
+    </div>
+    <nav class="onglets ev-parties">${S.parties.map(pa => { const n = notePartie(pa, evals[e.code]?.[evSem]?.[pa.id], ctx);
+      return `<button data-partie="${pa.id}" class="${pa.id === partie.id ? "actif" : ""}">${pa.court} <span class="pastille ${n.complet ? "ok" : ""}">${n.notes ? fmtNote(n.total) : "–"}/20</span></button>`; }).join("")}</nav>
+    ${partie.note ? `<p class="small muted" style="margin:4px 2px 10px">${esc(partie.note)}</p>` : ""}
+    <div class="ev-crits">${np.detail.map(({ cr, n }) => carteCritere(cr, etats[cr.id] || {}, n, ctx)).join("")}</div>
+    <div class="carte ev-total ligne espace">
+      <span><b>${partie.titre}</b>${np.complet ? "" : ` <span class="small muted">· ${np.notes}/${np.attendus} critères notés</span>`}</span>
+      <span class="ev-total-val">${np.notes ? fmtNote(np.total) : "—"} <small>/ 20</small></span>
+    </div>
+    <div class="ligne espace no-print" style="margin-top:4px">
+      <button id="ev-prec2" ${i <= 0 ? "disabled" : ""}>◀ Précédent</button>
+      <button class="primaire" id="ev-suiv2" ${i >= liste.length - 1 ? "disabled" : ""}>Étudiant suivant ▶</button>
+    </div>`;
+  const aller = d => { const n = liste[i + d]; if (n) { evCode = n.code; vueEvaluation(); } };
+  ["ev-prec", "ev-prec2"].forEach(id => z.querySelector("#" + id).onclick = () => aller(-1));
+  ["ev-suiv", "ev-suiv2"].forEach(id => z.querySelector("#" + id).onclick = () => aller(1));
+  z.querySelectorAll("[data-partie]").forEach(b => b.onclick = () => { evPartie = b.dataset.partie; panneauEval(); });
+  z.querySelectorAll("[data-sexe]").forEach(b => b.onclick = async () => {
+    e.sexe = b.dataset.sexe;
+    try { await DB.majEtudiant(e.code, { sexe: e.sexe }); } catch (err) { console.error(err); toast("Non enregistré : vérifiez la connexion."); }
+    sauverEval(e.code); vueEvaluation();
+  });
+  // Modifications d'un critère
+  const maj = (id, f) => { const et = (etats[id] ||= {}); f(et); sauverEval(e.code); rafraichir(); };
+  const rafraichir = () => { const y = window.scrollY; vueEvaluation(); window.scrollTo(0, y); };
+  z.querySelectorAll("[data-item]").forEach(b => b.onclick = () => maj(b.dataset.crit, et => {
+    const k = +b.dataset.item; et.c = (et.c || []).includes(k) ? et.c.filter(x => x !== k) : [...(et.c || []), k];
+    et.p = null;   // cocher recalcule la note proposée
+  }));
+  z.querySelectorAll("[data-pas]").forEach(b => b.onclick = () => maj(b.dataset.crit, et => {
+    const cr = partie.criteres.find(x => x.id === b.dataset.crit);
+    const actuel = noteCritere(cr, et, ctx)?.pts ?? 0;
+    et.p = Math.min(cr.max, Math.max(0, actuel + +b.dataset.pas));
+  }));
+  z.querySelectorAll("[data-rep]").forEach(b => b.onclick = () => maj(b.dataset.crit, et => { et.p = +b.dataset.rep; }));
+  z.querySelectorAll("[data-auto]").forEach(b => b.onclick = () => maj(b.dataset.crit, et => { et.p = null; }));
+}
+
+function carteCritere(cr, et, n, ctx) {
+  const coches = et.c || [];
+  const source = !n ? "Pas encore noté" : n.source === "manuel" ? "Note ajustée" : n.source === "bareme" ? "Calculée avec le barème" : `Proposée : ${coches.length}/${nbItems(cr)} coché${coches.length > 1 ? "s" : ""}`;
+  let k = -1;
+  let bareme = "";
+  if (cr.auto || cr.indice) {
+    const b = BAREMES[cr.auto || cr.indice], cot = ctx.maxEnchaine?.[b.mode];
+    const pts = pointsBareme(cr.auto || cr.indice, cot, ctx.sexe);
+    bareme = `<div class="ev-bareme">${!ctx.sexe ? "⚠ Choisissez Fille / Garçon en haut pour appliquer le barème."
+      : `${b.titre} : meilleure voie enchaînée${b.mode === "tete" ? " en tête" : ""} <b>${cot || "aucune"}</b> → <b>${fmtNote(pts ?? 0)} / 4</b>${cr.indice ? " (indicatif)" : ""}`}</div>`;
+  }
+  return `<div class="carte ev-crit ${n ? "note" : ""}">
+    <div class="ev-crit-tete">
+      <div><b>${esc(cr.titre)}</b><div class="small muted">${source}${n && n.source === "manuel" ? ` · <button class="lien" data-auto data-crit="${cr.id}">↺ revenir au calcul</button>` : ""}</div></div>
+      <div class="ev-pts">
+        <button data-pas="-0.5" data-crit="${cr.id}" aria-label="Retirer un demi-point">−</button>
+        <span><b>${n ? fmtNote(n.pts) : "—"}</b>/${cr.max}</span>
+        <button data-pas="0.5" data-crit="${cr.id}" aria-label="Ajouter un demi-point">+</button>
+      </div>
+    </div>
+    ${bareme}
+    ${cr.reperes ? `<div class="ev-reperes">${cr.reperes.map(([a, b, t]) =>
+      `<button data-rep="${b}" data-crit="${cr.id}" class="${n && n.pts >= a && n.pts <= b ? "actif" : ""}" title="${esc(t)}"><b>${a === b ? a : a + "–" + b}</b> ${esc(t)}</button>`).join("")}</div>` : ""}
+    ${cr.sections.map(([titre, items]) => `
+      ${titre ? `<div class="ev-section">${esc(titre)}</div>` : ""}
+      <div class="ev-items">${items.map(t => { k++;
+        return cr.auto ? `<span class="ev-item info">${esc(t)}</span>`
+          : `<button class="ev-item ${coches.includes(k) ? "on" : ""}" data-item="${k}" data-crit="${cr.id}">${coches.includes(k) ? "✓ " : ""}${esc(t)}</button>`; }).join("")}</div>`).join("")}
+  </div>`;
+}
+
+// Tableau récapitulatif d'un semestre + export CSV détaillé
+function recapEvaluation() {
+  const S = SEMESTRES[evSem];
+  const liste = etudiants.filter(e => !evGroupe || dansGroupe(e, evGroupe));
+  const lignes = liste.map(e => {
+    const ctx = ctxEval(e);
+    return { e, mx: maxParCode[e.code] || {}, parties: S.parties.map(pa => notePartie(pa, evals[e.code]?.[evSem]?.[pa.id], ctx)) };
+  });
+  modal.innerHTML = `
+    <div class="modal-fond"><div class="modal" style="max-width:1000px">
+      <div class="entete-carte"><div><h2>Récapitulatif · ${S.titre}</h2>
+        <p class="muted small">${evGroupe || "Jeudi + Vendredi"} · ${liste.length} étudiants · notes en italique = partie incomplète</p></div><button id="fermer">✕</button></div>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Étudiant</th><th>Créneau(x)</th><th>F/G</th><th>Max moul.</th><th>Max tête</th>${S.parties.map(p => `<th>${p.court} /20</th>`).join("")}</tr></thead>
+        <tbody>${lignes.map(({ e, mx, parties }) => `<tr>
+          <td><b>${esc(e.nom)}</b> ${esc(e.prenom)}</td><td class="small">${DB.groupesDe(e).join(" · ")}</td><td>${e.sexe || "—"}</td>
+          <td>${mx.moulinette || "—"}</td><td>${mx.tete || "—"}</td>
+          ${parties.map(np => `<td>${np.notes ? (np.complet ? `<b>${fmtNote(np.total)}</b>` : `<i>${fmtNote(np.total)}</i>`) : "—"}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table></div>
+      <div class="ligne no-print" style="justify-content:flex-end;margin-top:16px">
+        <button id="print-r">🖨 Imprimer</button><button class="primaire" id="csv-r">⬇ Export CSV détaillé</button></div>
+    </div></div>`;
+  const fermer = () => { modal.innerHTML = ""; };
+  modal.querySelector("#fermer").onclick = fermer;
+  modal.querySelector(".modal-fond").onclick = ev => { if (ev.target.classList.contains("modal-fond")) fermer(); };
+  modal.querySelector("#print-r").onclick = () => window.print();
+  modal.querySelector("#csv-r").onclick = () => {
+    const entete = ["Nom", "Prénom", "Code", "Créneaux", "F/G", "Max moulinette", "Max tête"];
+    S.parties.forEach(pa => { pa.criteres.forEach(cr => entete.push(`${pa.court} · ${cr.titre} /${cr.max}`)); entete.push(`${pa.court} /20`); });
+    const rows = lignes.map(({ e, mx, parties }) => {
+      const r = [e.nom, e.prenom, e.code, DB.groupesDe(e).join(" + "), e.sexe || "", mx.moulinette || "", mx.tete || ""];
+      parties.forEach(np => { np.detail.forEach(({ n }) => r.push(n ? fmtNote(n.pts) : "")); r.push(np.notes ? fmtNote(np.total) : ""); });
+      return r;
+    });
+    const csv = [entete, ...rows].map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";")).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+    a.download = `escalade-evaluation-${evSem}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  };
 }
 
 // ================= ÉTUDIANTS =================
