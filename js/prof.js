@@ -3,7 +3,7 @@
 // =====================================================================
 import * as DB from "./db.js";
 import {
-  SECTEURS, COULEURS, COTATIONS, MODES, RESULTATS, RESSENTIS, libelle, rangCotation,
+  SECTEURS, COULEURS, COTATIONS, TOUTES_PRISES, MODES, RESULTATS, RESSENTIS, libelle, rangCotation,
   fmtDate, fmtHeure, esc
 } from "./topo.js";
 import { maxTete, maxMoulinette, pyramide, jour } from "./stats.js";
@@ -568,16 +568,21 @@ function vueQR() {
 function vueTopo() {
   const c = contenu();
   const optCouleurs = sel => Object.keys(COULEURS).map(k => `<option ${k === sel ? "selected" : ""}>${k}</option>`).join("");
-  const optCot = sel => COTATIONS.map(k => `<option ${k === sel ? "selected" : ""}>${k}</option>`).join("");
+  const optCot = sel => `<option value="" ${sel ? "" : "selected"}>à coter</option>` + COTATIONS.map(k => `<option ${k === sel ? "selected" : ""}>${k}</option>`).join("");
+  const sansToutePrise = SECTEURS.flatMap(s => s.relais).filter(r => !topo.some(v => v.relais === r && v.couleur === TOUTES_PRISES && v.actif !== false));
+  const aCoter = topo.filter(v => v.actif !== false && !v.cotation).length;
   c.innerHTML = `
     <div class="carte">
       <div class="entete-carte">
         <div><h3>Topo du mur de Suchet</h3>
         <p class="small muted">${topo.filter(v => v.actif !== false).length} voies en place · ${topo.filter(v => v.actif === false).length} démontées (gardées pour l'historique des étudiants)</p></div>
         <div class="ligne"><label class="small" style="margin:0"><input type="checkbox" id="voir-demontees" style="width:auto"> Voir les voies démontées</label>
+          ${sansToutePrise.length ? `<button id="btn-toutes-prises" title="Relais sans voie toute prise : ${sansToutePrise.join(", ")}">＋ Voie toute prise sur chaque relais</button>` : ""}
           <button class="primaire" id="btn-save-topo">Enregistrer le topo</button></div>
       </div>
-      <p class="small muted">📷 Sur téléphone, « ＋ Photo » permet de photographier la voie directement au pied du mur. Lors d'un rééquipement : décochez « En place » pour les anciennes voies (ou « Démonter le relais »), puis ajoutez les nouvelles. Ne supprimez pas une voie déjà grimpée : la démonter suffit.</p>
+      ${aCoter ? `<p class="small" style="color:var(--warn);font-weight:600">⚠ ${aCoter} voie${aCoter > 1 ? "s" : ""} en place à coter : choisissez la cotation puis « Enregistrer le topo ».</p>` : ""}
+      <p class="small muted">📷 Sur téléphone, « ＋ Photo » permet de photographier la voie directement au pied du mur.<br>
+        🔁 Une voie a été modifiée ? Cliquez sur « ↻ Remplacer » : l'ancienne passe en « démontée » (l'historique des étudiants est conservé) et une nouvelle ligne apparaît en tête du relais, à compléter. Tout un relais rééquipé ? « Démonter le relais », puis « ＋ Ajouter une voie ». N'oubliez pas « Enregistrer le topo ».</p>
     </div>
     ${SECTEURS.map(s => `
       <div class="carte">
@@ -591,10 +596,11 @@ function vueTopo() {
               <td style="width:34px">${puce(v.couleur)}</td>
               <td style="width:110px;white-space:nowrap">${v.photo ? `<button class="lien" data-photo-voir="${i}">📷 Voir</button>` : `<label class="lien small" style="margin:0;cursor:pointer;color:var(--accent)">＋ Photo<input type="file" accept="image/*" data-photo-ajout="${i}" hidden></label>`}</td>
               <td><input class="t-nom" value="${esc(v.nom)}"></td>
-              <td style="width:120px"><select class="t-coul">${optCouleurs(v.couleur)}</select></td>
-              <td style="width:95px"><select class="t-cot">${optCot(v.cotation)}</select></td>
+              <td style="width:155px"><select class="t-coul">${optCouleurs(v.couleur)}</select></td>
+              <td style="width:118px"><select class="t-cot">${optCot(v.cotation)}</select></td>
               <td style="width:110px;white-space:nowrap"><label class="small" style="margin:0"><input type="checkbox" class="t-actif" style="width:auto" ${v.actif !== false ? "checked" : ""}> En place</label></td>
-              <td style="width:40px">${v.nouvelle ? `<button class="lien danger" data-suppr="${i}" title="Retirer">✕</button>` : ""}</td>
+              <td style="width:110px;white-space:nowrap">${v.nouvelle ? `<button class="lien danger" data-suppr="${i}" title="Retirer cette ligne non enregistrée">✕ Retirer</button>`
+                : v.actif !== false ? `<button class="lien" data-remplacer="${i}" title="Démonter cette voie et en créer une nouvelle sur le même relais">↻ Remplacer</button>` : ""}</td>
             </tr>`).join("")}
           </tbody></table></div>`).join("")}
       </div>`).join("")}`;
@@ -618,6 +624,25 @@ function vueTopo() {
     topo.push({ id: "n" + Date.now().toString(36), secteur: SECTEURS.find(s => s.relais.includes(r)).nom, relais: r,
       nom: "Nouvelle voie", cotation: "5a", couleur: "Rouge", oblyk: null, actif: true, nouvelle: true, ouverteLe: new Date().toISOString() });
     vueTopo();
+  });
+  // « Voie toute prise » sur chaque relais qui n'en a pas encore (cotation à renseigner)
+  const btnTP = c.querySelector("#btn-toutes-prises");
+  if (btnTP) btnTP.onclick = () => {
+    lire();
+    sansToutePrise.forEach((r, k) => topo.push({ id: "n" + Date.now().toString(36) + k, secteur: SECTEURS.find(s => s.relais.includes(r)).nom, relais: r,
+      nom: "Voie toute prise", cotation: "", couleur: TOUTES_PRISES, oblyk: null, actif: true, nouvelle: true, ouverteLe: new Date().toISOString() }));
+    vueTopo();
+    toast(`${sansToutePrise.length} voies toute prise ajoutées : renseignez les cotations puis enregistrez`);
+  };
+  // Remplacer une voie : l'ancienne est démontée, une nouvelle (même relais, même couleur) est ajoutée
+  c.querySelectorAll("[data-remplacer]").forEach(b => b.onclick = () => {
+    lire();
+    const ancienne = topo[+b.dataset.remplacer];
+    ancienne.actif = false;
+    topo.push({ id: "n" + Date.now().toString(36), secteur: ancienne.secteur, relais: ancienne.relais,
+      nom: "Nouvelle voie", cotation: "", couleur: ancienne.couleur, oblyk: null, actif: true, nouvelle: true, ouverteLe: new Date().toISOString() });
+    vueTopo();
+    toast(`« ${ancienne.nom} » démontée : complétez la nouvelle voie du relais ${ancienne.relais}`);
   });
   c.querySelectorAll("[data-demonter]").forEach(b => b.onclick = async () => {
     if (!(await demander(`Marquer toutes les voies du relais ${b.dataset.demonter} comme démontées ?`, "Démonter"))) return;

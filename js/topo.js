@@ -11,8 +11,11 @@ export const SECTEURS = [
 export const COULEURS = {
   Rouge: "#e3241b", Orange: "#ff7a00", Jaune: "#ffcc00", Vert: "#2ca02c", Bleu: "#1f5fd4",
   Violet: "#a640c8", Noir: "#1a1a1a", Gris: "#999999", Blanc: "#f2f2f2", Beige: "#efe6c8",
-  Saumon: "#ffbfa0", Rose: "#ff6fb5", Marron: "#8b5a2b"
+  Saumon: "#ffbfa0", Rose: "#ff6fb5", Marron: "#8b5a2b",
+  // « Voie toute prise » : toutes les prises du relais sont autorisées (pastille multicolore)
+  "Toutes prises": "conic-gradient(#e3241b, #ffcc00, #2ca02c, #1f5fd4, #a640c8, #e3241b)"
 };
+export const TOUTES_PRISES = "Toutes prises";
 
 export const COTATIONS = ["3a","3b","3c","4a","4b","4c","5a","5b","5c","6a","6b","6c","7a","7b","7c","8a"]
   .flatMap(c => [c, c + "+"]);
