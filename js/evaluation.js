@@ -113,7 +113,7 @@ export function pointsBareme(cle, cotation, sexe) {
 }
 
 export const nbItems = c => c.sections.reduce((n, [, l]) => n + l.length, 0);
-const demiPoint = x => Math.round(x * 2) / 2;
+const centieme = x => Math.round(x * 100) / 100;   // on garde les décimales (2 chiffres)
 
 // 5 couleurs, comme l'appli danse : niveau 0 à 4 pour chaque sous-critère
 export const NIVEAUX = ["Non acquis", "Non acquis → en cours", "En cours d'acquisition", "En cours → acquis", "Acquis"];
@@ -121,10 +121,10 @@ export const NIVEAUX = ["Non acquis", "Non acquis → en cours", "En cours d'acq
 export const niveauxSaisis = etat => Object.values(etat?.l || {}).filter(v => Number.isInteger(v) && v >= 0 && v <= 4);
 
 // Note d'un critère. etat = { l: { indexItem: niveau 0-4 }, p: note ajustée à la main ou null }
-// Note = moyenne des niveaux saisis ramenée sur les points du critère, arrondie au demi-point.
+// Note = moyenne des niveaux saisis ramenée sur les points du critère, avec ses décimales (ex. 4,17).
 // ctx = { maxEnchaine } pour les calculs automatiques. Retourne { pts, source } ou null.
 export function noteCritere(crit, etat = {}, ctx = {}) {
-  if (typeof etat.p === "number") return { pts: Math.min(crit.max, Math.max(0, etat.p)), source: "manuel" };
+  if (typeof etat.p === "number") return { pts: centieme(Math.min(crit.max, Math.max(0, etat.p))), source: "manuel" };
   if (crit.auto && BAREMES[crit.auto]) {
     const b = pointsBareme(crit.auto, ctx.maxEnchaine?.[BAREMES[crit.auto].mode], ctx.sexe);
     return b === null ? null : { pts: b, source: "bareme" };
@@ -132,7 +132,7 @@ export function noteCritere(crit, etat = {}, ctx = {}) {
   const niv = niveauxSaisis(etat);
   if (!niv.length) return null;
   const moyenne = niv.reduce((a, b) => a + b, 0) / niv.length;   // 0 à 4
-  return { pts: demiPoint(crit.max * moyenne / 4), source: "couleurs" };
+  return { pts: centieme(crit.max * moyenne / 4), source: "couleurs" };
 }
 
 // Note d'une partie (/20, bonus compris, plafonnée à 20)
@@ -144,7 +144,7 @@ export function notePartie(partie, etats = {}, ctx = {}) {
     if (n) { total += n.pts; if (!cr.bonus) notes++; }
     return { cr, n };
   });
-  return { total: Math.min(20, total), complet: notes === attendus, notes, attendus, detail };
+  return { total: centieme(Math.min(20, total)), complet: notes === attendus, notes, attendus, detail };
 }
 
 // Résumé publié aux étudiants : seulement les grands critères, jamais les sous-critères
@@ -162,4 +162,5 @@ export function resumePublic(semestre, etatsSemestre = {}, ctx = {}) {
   };
 }
 
-export const fmtNote = x => (x === null || x === undefined) ? "—" : String(x).replace(".", ",");
+// 4.1666 → « 4,17 » ; 2.5 → « 2,5 » ; 4 → « 4 »
+export const fmtNote = x => (x === null || x === undefined) ? "—" : String(Math.round(x * 100) / 100).replace(".", ",");

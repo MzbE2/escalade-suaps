@@ -355,3 +355,4 @@ button.niv.on { opacity: 1; border-color: var(--ink); box-shadow: 0 0 0 2px var(
   .niveaux { justify-content: space-between; }
   button.niv { flex: 1; height: 38px; }
 }
+.ev-nom .mini i { min-width: 38px; }

@@ -304,7 +304,7 @@ async function enregistrer() {
 
 // ---------------- Onglet « Progression » ----------------
 let mesNotes = null;
-const fmtN = x => (x === null || x === undefined) ? "—" : String(x).replace(".", ",");
+const fmtN = x => (x === null || x === undefined) ? "—" : String(Math.round(x * 100) / 100).replace(".", ",");
 // Évaluation publiée : uniquement les grands critères et la note de chaque partie
 function carteNotes() {
   const sems = ["s2", "s1"].map(k => mesNotes?.[k]).filter(Boolean);
