@@ -406,6 +406,11 @@ export async function saveNotesPubliees(code, notes) {
   await fb();
   await fs.setDoc(fs.doc(db, "notes", code), notes);
 }
+export async function supprimerNotesPubliees(code) {
+  if (MODE_DEMO) { delete (lireDemo().notes || {})[code]; ecrireDemo(); return; }
+  await fb();
+  await fs.deleteDoc(fs.doc(db, "notes", code));
+}
 export async function ecouterNotesPubliees(code, cb) {
   if (MODE_DEMO) return ecouterDemo(() => cb(clone((lireDemo().notes || {})[code] || null)));
   await fb();

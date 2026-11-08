@@ -7,7 +7,7 @@ import {
   fmtDate, fmtHeure, esc
 } from "./topo.js";
 import { maxTete, maxMoulinette, pyramide, jour, meilleure, enchaine } from "./stats.js";
-import { SEMESTRES, BAREMES, NIVEAUX, pointsBareme, noteCritere, notePartie, resumePublic, nbItems, niveauxSaisis, fmtNote } from "./evaluation.js";
+import { SEMESTRES, BAREMES, NIVEAUX, pointsBareme, noteCritere, notePartie, nbItems, niveauxSaisis, fmtNote } from "./evaluation.js";
 
 const app = document.getElementById("app");
 const modal = document.getElementById("modal");
@@ -441,22 +441,25 @@ function exporterPassages(l, nom) {
 
 // ================= ÉVALUATION =================
 // Les données détaillées restent côté enseignant ; l'étudiant ne reçoit que les grands critères, après publication.
-let evals = null, cfgEval = { publie: {} }, maxParCode = {};
+let evals = null, maxParCode = {};
 let evSem = "s1", evPartie = "inv", evCode = null, evGroupe = "";
 const minuteurs = {};
 
 async function chargerEvaluation() {
   const [ev, cfg, ...carnets] = await Promise.all([
     DB.listerEvaluations(), DB.getConfigEvaluation(), ...etudiants.map(e => DB.listerPassagesEtudiant(e.code))]);
-  evals = ev; cfgEval = { publie: {}, ...cfg };
+  evals = ev;
+  // Les notes ne sont jamais montrées aux étudiants : on efface ce qu'une ancienne version aurait publié
+  if (Object.values(cfg?.publie || {}).some(Boolean)) {
+    await Promise.all(etudiants.map(e => DB.supprimerNotesPubliees(e.code)));
+    await DB.saveConfigEvaluation({ publie: {} });
+  }
   etudiants.forEach((e, i) => {
     maxParCode[e.code] = { toutes: meilleure(carnets[i], enchaine), tete: maxTete(carnets[i]), moulinette: maxMoulinette(carnets[i]) };
   });
 }
 const ctxEval = e => ({ sexe: e.sexe, maxEnchaine: maxParCode[e.code] || {} });
 const etatsDe = (code, sem, partie) => ((evals[code] ||= {})[sem] ||= {})[partie] ||= {};
-const notesPubliees = e => Object.fromEntries(Object.keys(SEMESTRES).map(sm =>
-  [sm, cfgEval.publie?.[sm] ? resumePublic(sm, evals[e.code]?.[sm], ctxEval(e)) : null]));
 // Actif = a enregistré une voie dans la séance suivie il y a moins de 15 min
 const actifs = () => new Set(passagesLive.filter(p => Date.now() - new Date(p.date) < 15 * 60000).map(p => p.code));
 
@@ -468,8 +471,6 @@ function sauverEval(code) {
   minuteurs[code] = setTimeout(async () => {
     try {
       await DB.saveEvaluation(code, donnees);
-      const e = etudiants.find(x => x.code === code);
-      if (e && Object.values(cfgEval.publie || {}).some(Boolean)) await DB.saveNotesPubliees(code, notesPubliees(e));
       const st = document.getElementById("ev-statut"); if (st) st.textContent = "✓ Enregistré";
     } catch (err) {
       console.error(err);
@@ -488,13 +489,13 @@ async function vueEvaluation() {
   }
   const liste = etudiants.filter(e => !evGroupe || dansGroupe(e, evGroupe));
   if (!liste.find(e => e.code === evCode)) evCode = liste[0]?.code || null;
-  const S = SEMESTRES[evSem], publie = !!cfgEval.publie?.[evSem], act = actifs();
+  const S = SEMESTRES[evSem], act = actifs();
   c.innerHTML = `
     <div class="carte ev-barre no-print">
       <div class="segment">${Object.entries(SEMESTRES).map(([k, v]) => `<button data-sem="${k}" class="${k === evSem ? "actif" : ""}">${v.court}</button>`).join("")}</div>
       <select id="ev-groupe" style="width:auto"><option value="">Jeudi + Vendredi</option>${CRENEAUX.map(g => `<option ${g === evGroupe ? "selected" : ""}>${g}</option>`).join("")}</select>
-      <label class="ev-publie ${publie ? "on" : ""}"><input type="checkbox" id="ev-publier" ${publie ? "checked" : ""}> ${publie ? "👁 Notes visibles par les étudiants" : "🔒 Notes cachées aux étudiants"}</label>
       <button id="ev-recap">📋 Récapitulatif</button>
+      <button class="danger" id="ev-raz-tous">Remettre à zéro tous les étudiants</button>
     </div>
     ${liste.length ? `<div class="ev-grille">
       <aside class="carte ev-liste">
@@ -515,18 +516,15 @@ async function vueEvaluation() {
   c.querySelectorAll("[data-ev]").forEach(b => b.onclick = () => { evCode = b.dataset.ev; vueEvaluation(); });
   const ch = c.querySelector("#ev-choix"); if (ch) ch.onchange = () => { evCode = ch.value; vueEvaluation(); };
   c.querySelector("#ev-recap").onclick = () => recapEvaluation();
-  c.querySelector("#ev-publier").onchange = async ev => {
-    const on = ev.target.checked;
-    const ok = await demander(on
-      ? `Rendre visibles les notes du ${S.titre} ? Chaque étudiant verra ses notes par grand critère (sans le détail des sous-critères), y compris les critères pas encore notés (affichés « — »).`
-      : `Cacher à nouveau les notes du ${S.titre} aux étudiants ?`, on ? "Publier" : "Cacher");
-    if (!ok) { ev.target.checked = !on; return; }
-    cfgEval.publie = { ...cfgEval.publie, [evSem]: on };
+  // Effacer les notes du semestre affiché pour tous les étudiants de la liste
+  c.querySelector("#ev-raz-tous").onclick = async () => {
+    const qui = evGroupe ? `du créneau ${evGroupe}` : "(Jeudi et Vendredi)";
+    if (!(await demander(`Effacer TOUTES les notes du ${S.titre} pour les ${liste.length} étudiants ${qui} ? Couleurs, ajustements et commentaires de ce semestre seront supprimés. C'est définitif.`, "Tout effacer"))) return;
+    if (!(await demander(`Dernière confirmation : effacer l'évaluation du ${S.titre} de ${liste.length} étudiants ?`, "Oui, effacer"))) return;
     try {
-      await DB.saveConfigEvaluation(cfgEval);
-      await Promise.all(etudiants.map(e => DB.saveNotesPubliees(e.code, notesPubliees(e))));
-      toast(on ? "Notes publiées" : "Notes cachées");
-    } catch (err) { console.error(err); toast("Publication impossible : vérifiez la connexion et les règles Firestore."); }
+      await Promise.all(liste.map(e => { clearTimeout(minuteurs[e.code]); if (evals[e.code]) delete evals[e.code][evSem]; return DB.saveEvaluation(e.code, evals[e.code] || {}); }));
+      toast(`Évaluation du ${S.court} remise à zéro`);
+    } catch (err) { console.error(err); toast("Effacement impossible : vérifiez la connexion."); }
     vueEvaluation();
   };
   if (evCode) panneauEval();
@@ -570,6 +568,9 @@ function panneauEval() {
       <label for="ev-comment" style="margin-top:0">Commentaire (privé, jamais montré à l'étudiant) · ${S.court}</label>
       <textarea id="ev-comment" rows="3" placeholder="Remarques, rappels de sécurité, points à revoir…">${esc(evals[e.code]?.[evSem]?.commentaire || "")}</textarea>
     </div>
+    <div class="ligne no-print" style="justify-content:flex-end;margin:-4px 0 10px">
+      <button class="lien danger" id="ev-raz">Remettre à zéro l'évaluation ${S.court} de ${esc(e.prenom)}</button>
+    </div>
     <div class="ligne espace no-print" style="margin-top:4px">
       <button id="ev-prec2" ${i <= 0 ? "disabled" : ""}>◀ Précédent</button>
       <button class="primaire" id="ev-suiv2" ${i >= liste.length - 1 ? "disabled" : ""}>Étudiant suivant ▶</button>
@@ -594,6 +595,14 @@ function panneauEval() {
     delete et.c;   // ancien format (cases à cocher)
     et.p = null;   // la note suit les couleurs
   }));
+  z.querySelector("#ev-raz").onclick = async () => {
+    if (!(await demander(`Effacer toute l'évaluation du ${S.titre} de ${e.prenom} ${e.nom} (Investissement, Pratique, Théorie et commentaire) ? C'est définitif.`, "Effacer"))) return;
+    clearTimeout(minuteurs[e.code]);
+    if (evals[e.code]) delete evals[e.code][evSem];
+    try { await DB.saveEvaluation(e.code, evals[e.code] || {}); toast(`Évaluation de ${e.prenom} remise à zéro`); }
+    catch (err) { console.error(err); toast("Effacement impossible : vérifiez la connexion."); }
+    vueEvaluation();
+  };
   const com = z.querySelector("#ev-comment");
   com.oninput = () => {
     ((evals[e.code] ||= {})[evSem] ||= {}).commentaire = com.value;

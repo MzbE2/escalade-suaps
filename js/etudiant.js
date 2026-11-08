@@ -7,6 +7,7 @@ import {
   fmtDate, fmtHeure, esc
 } from "./topo.js";
 import { maxTete, maxMoulinette, pyramide, jour } from "./stats.js";
+import { SEMESTRES } from "./evaluation.js";
 
 const app = document.getElementById("app");
 const CLE_CODE = "escalade-suaps-code";
@@ -90,8 +91,6 @@ async function connecter(code, interactif) {
       binomes = l.filter(n => n !== DB.nomCourt(E));
       majListeAssureurs();
     }));
-    // Notes publiées par l'enseignant (grands critères seulement)
-    arrets.push(await DB.ecouterNotesPubliees(E.code, n => { mesNotes = n; if (onglet === "progression") vueProgression(); }));
     arrets.push(await DB.ecouterPassagesEtudiant(E.code, l => { passages = l; majSeance(); if (onglet === "progression") vueProgression(); }));
     return true;
   } catch (err) {
@@ -303,21 +302,19 @@ async function enregistrer() {
 }
 
 // ---------------- Onglet « Progression » ----------------
-let mesNotes = null;
-const fmtN = x => (x === null || x === undefined) ? "—" : String(Math.round(x * 100) / 100).replace(".", ",");
-// Évaluation publiée : uniquement les grands critères et la note de chaque partie
-function carteNotes() {
-  const sems = ["s2", "s1"].map(k => mesNotes?.[k]).filter(Boolean);
-  if (!sems.length) return "";
-  return sems.map(S => `
+// Critères d'évaluation : les grandes lignes et leurs points, jamais les notes de l'étudiant
+let semCriteres = "s1";
+function carteCriteres() {
+  const S = SEMESTRES[semCriteres];
+  return `
     <div class="carte mes-notes">
-      <h3>Mon évaluation · ${esc(S.titre)}</h3>
+      <div class="ligne espace" style="align-items:center"><h3 style="margin:0">Critères d'évaluation</h3>
+        <div class="segment petit">${Object.entries(SEMESTRES).map(([k, v]) => `<button data-semc="${k}" class="${k === semCriteres ? "actif" : ""}">${v.court}</button>`).join("")}</div></div>
       ${S.parties.map(pa => `<div class="partie">
-        <div class="partie-tete"><span>${esc(pa.titre)}</span><b class="val">${fmtN(pa.total)}<small class="muted"> /20</small></b></div>
-        ${pa.criteres.map(cr => `<div class="crit"><span>${esc(cr.titre)}</span><b>${cr.pts === null ? "—" : fmtN(cr.pts)}${cr.bonus ? " (bonus)" : ""} / ${cr.max}</b></div>`).join("")}
+        <div class="partie-tete"><span><b>${esc(pa.titre)}</b></span><span class="muted">/20</span></div>
+        ${pa.criteres.map(cr => `<div class="crit"><span>${esc(cr.titre)}</span><b>${cr.bonus ? "bonus " : ""}${cr.max} pts</b></div>`).join("")}
       </div>`).join("")}
-      <p class="small muted" style="margin:6px 0 0">« — » : pas encore évalué.</p>
-    </div>`).join("");
+    </div>`;
 }
 function vueProgression() {
   const c = document.getElementById("contenu");
@@ -326,7 +323,7 @@ function vueProgression() {
   const pyr = pyramide(passages);
   const maxBarre = Math.max(1, ...pyr.map(([, n]) => n.tete + n.moulinette));
   c.innerHTML = `
-    ${carteNotes()}
+    ${carteCriteres()}
     <div class="grille g2" style="margin-top:14px">
       <div class="stat accent"><div class="val">${maxTete(passages) || "—"}</div><div class="lbl">Meilleure en tête</div></div>
       <div class="stat"><div class="val">${maxMoulinette(passages) || "—"}</div><div class="lbl">Meilleure en moulinette</div></div>
@@ -352,6 +349,7 @@ function vueProgression() {
     const p = passages.find(x => x.id === b.dataset.annuler);
     try { await DB.supprimerPassage(p); toast("Voie retirée"); } catch (e) { toast("Trop tard pour annuler."); }
   });
+  c.querySelectorAll("[data-semc]").forEach(b => b.onclick = () => { semCriteres = b.dataset.semc; vueProgression(); });
 }
 
 demarrer();

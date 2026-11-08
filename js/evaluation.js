@@ -147,20 +147,5 @@ export function notePartie(partie, etats = {}, ctx = {}) {
   return { total: centieme(Math.min(20, total)), complet: notes === attendus, notes, attendus, detail };
 }
 
-// Résumé publié aux étudiants : seulement les grands critères, jamais les sous-critères
-export function resumePublic(semestre, etatsSemestre = {}, ctx = {}) {
-  const S = SEMESTRES[semestre];
-  return {
-    titre: S.titre,
-    parties: S.parties.map(pa => {
-      const np = notePartie(pa, etatsSemestre[pa.id], ctx);
-      return {
-        titre: pa.titre, total: np.notes ? np.total : null,
-        criteres: np.detail.map(({ cr, n }) => ({ titre: cr.titre, max: cr.max, pts: n ? n.pts : null, bonus: !!cr.bonus }))
-      };
-    })
-  };
-}
-
 // 4.1666 → « 4,17 » ; 2.5 → « 2,5 » ; 4 → « 4 »
 export const fmtNote = x => (x === null || x === undefined) ? "—" : String(Math.round(x * 100) / 100).replace(".", ",");
