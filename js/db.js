@@ -30,6 +30,11 @@ async function fb() {
 
 const clone = o => JSON.parse(JSON.stringify(o));
 const maintenant = () => new Date().toISOString();
+// Un étudiant peut pratiquer sur plusieurs créneaux : groupes = ["Jeudi", "Vendredi"]
+// (les anciens profils n'ont que « groupe » : on le lit comme une liste d'un élément)
+export const groupesDe = e => (Array.isArray(e?.groupes) && e.groupes.length ? e.groupes : (e?.groupe ? [e.groupe] : []));
+export const lireGroupes = v => [...new Set((Array.isArray(v) ? v : String(v || "").split(/[+,;\/]/)).map(g => String(g).trim()).filter(Boolean))];
+const champsGroupes = groupes => ({ groupes, groupe: groupes.join(" + ") });
 export const nomCourt = e => `${e.prenom} ${String(e.nom || "").charAt(0).toUpperCase()}.`;
 
 // ---------- Stockage démo (navigateur, partagé entre onglets) ----------
@@ -149,24 +154,25 @@ export function compresserImage(fichier, cote = 1200) {
 }
 
 // ---------- Annuaire (noms affichés pour choisir son binôme) ----------
-export async function getAnnuaire(groupe) {
-  if (MODE_DEMO) return clone(lireDemo().annuaire.groupes[groupe] || []);
+const unionAnnuaire = (parGroupe, groupes) => [...new Set(groupes.flatMap(g => parGroupe?.[g] || []))].sort((a, b) => a.localeCompare(b, "fr"));
+export async function getAnnuaire(groupes) {
+  if (MODE_DEMO) return unionAnnuaire(lireDemo().annuaire.groupes, groupes);
   await fb();
   const s = await fs.getDoc(fs.doc(db, "config", "annuaire"));
-  return (s.exists() && s.data().groupes?.[groupe]) || [];
+  return unionAnnuaire(s.exists() && s.data().groupes, groupes);
 }
 // Écoute en direct de l'annuaire d'un groupe : un étudiant ajouté par l'enseignant
 // apparaît tout de suite dans la liste « Assuré·e par », sans recharger la page.
-export async function ecouterAnnuaire(groupe, cb) {
-  if (MODE_DEMO) return ecouterDemo(() => cb(clone(lireDemo().annuaire.groupes[groupe] || [])));
+export async function ecouterAnnuaire(groupes, cb) {
+  if (MODE_DEMO) return ecouterDemo(() => cb(unionAnnuaire(lireDemo().annuaire.groupes, groupes)));
   await fb();
   return fs.onSnapshot(fs.doc(db, "config", "annuaire"),
-    s => cb((s.exists() && s.data().groupes?.[groupe]) || []),
+    s => cb(unionAnnuaire(s.exists() && s.data().groupes, groupes)),
     e => console.error(e));
 }
 export async function majAnnuaire(etudiants) {
   const groupes = {};
-  for (const e of etudiants) (groupes[e.groupe || "Sans groupe"] ||= []).push(nomCourt(e));
+  for (const e of etudiants) for (const g of (groupesDe(e).length ? groupesDe(e) : ["Sans groupe"])) (groupes[g] ||= []).push(nomCourt(e));
   Object.values(groupes).forEach(l => l.sort((a, b) => a.localeCompare(b, "fr")));
   if (MODE_DEMO) { lireDemo().annuaire = { groupes }; ecrireDemo(); return; }
   await fb();
@@ -183,13 +189,13 @@ export async function getEtudiant(code) {
   return s.exists() ? s.data() : null;
 }
 
-export async function creerEtudiant({ nom, prenom, groupe }) {
+export async function creerEtudiant({ nom, prenom, groupe, groupes }) {
   let code;
   for (let i = 0; i < 10; i++) {
     code = genererCode(6);
     if (!(await getEtudiant(code))) break;
   }
-  const e = { code, nom: nom.trim(), prenom: prenom.trim(), groupe: (groupe || "").trim(), creeLe: maintenant() };
+  const e = { code, nom: nom.trim(), prenom: prenom.trim(), ...champsGroupes(lireGroupes(groupes || groupe)), creeLe: maintenant() };
   if (MODE_DEMO) { lireDemo().etudiants[code] = clone(e); ecrireDemo(); return e; }
   await fb();
   await fs.setDoc(fs.doc(db, "etudiants", code), e);
@@ -217,6 +223,15 @@ export async function supprimerEtudiant(code) {
     await fs.deleteDoc(d.ref);
   }
   await fs.deleteDoc(fs.doc(db, "etudiants", code));
+}
+
+// Changer les créneaux d'un étudiant (même profil, même code, même carnet)
+export async function modifierGroupes(code, groupes) {
+  const champs = champsGroupes(lireGroupes(groupes));
+  if (MODE_DEMO) { Object.assign(lireDemo().etudiants[code], champs); ecrireDemo(); return champs; }
+  await fb();
+  await fs.updateDoc(fs.doc(db, "etudiants", code), champs);
+  return champs;
 }
 
 export async function listerEtudiants() {
@@ -268,11 +283,12 @@ const DUREE_MAX = 6 * 3600 * 1000;
 const encoreValide = s => s.ouverte && Date.now() - new Date(s.debut).getTime() < DUREE_MAX;
 
 // Écoute en direct de la séance ouverte d'un groupe (page étudiant)
-export async function ecouterSeanceOuverte(groupe, cb) {
-  const choisir = liste => cb(liste.filter(encoreValide).sort((a, b) => b.debut.localeCompare(a.debut))[0] || null);
-  if (MODE_DEMO) return ecouterDemo(() => choisir(Object.values(clone(lireDemo().seances)).filter(s => s.groupe === groupe)));
+export async function ecouterSeanceOuverte(groupes, cb) {
+  const choisir = liste => cb(liste.filter(s => groupes.includes(s.groupe)).filter(encoreValide).sort((a, b) => b.debut.localeCompare(a.debut))[0] || null);
+  if (MODE_DEMO) return ecouterDemo(() => choisir(Object.values(clone(lireDemo().seances)).filter(s => s.ouverte)));
   await fb();
-  const q = fs.query(fs.collection(db, "seances"), fs.where("groupe", "==", groupe), fs.where("ouverte", "==", true));
+  // peu de séances ouvertes à la fois : on filtre les créneaux de l'étudiant côté navigateur
+  const q = fs.query(fs.collection(db, "seances"), fs.where("ouverte", "==", true));
   return fs.onSnapshot(q, s => choisir(s.docs.map(d => d.data())), e => { console.error(e); cb(null); });
 }
 
@@ -287,7 +303,7 @@ export async function ecouterSeancesOuvertes(cb) {
 // ---------- Passages (une voie grimpée) ----------
 export async function ajouterPassage(etudiant, seanceId, p) {
   const id = genererCode(16);
-  const doc = { ...p, id, code: etudiant.code, etudiant: nomCourt(etudiant), groupe: etudiant.groupe, seanceId: seanceId || null, date: maintenant() };
+  const doc = { ...p, id, code: etudiant.code, etudiant: nomCourt(etudiant), groupe: p.groupe || etudiant.groupe, seanceId: seanceId || null, date: maintenant() };
   if (MODE_DEMO) { lireDemo().passages[id] = clone(doc); ecrireDemo(); return doc; }
   await fb();
   const b = fs.writeBatch(db);

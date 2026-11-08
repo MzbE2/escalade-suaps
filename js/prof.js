@@ -24,7 +24,12 @@ function toast(msg) {
 }
 const urlEtudiant = code => new URL("index.html#" + code, location.href).href;
 const puce = c => `<span class="puce" style="background:${COULEURS[c] || "#ccc"}" title="${esc(c)}"></span>`;
-const groupes = () => [...new Set(etudiants.map(e => e.groupe).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
+const groupes = () => [...new Set(etudiants.flatMap(DB.groupesDe))].sort((a, b) => a.localeCompare(b, "fr"));
+const dansGroupe = (e, g) => DB.groupesDe(e).includes(g);
+const sansAccent = t => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+// Retrouver un étudiant déjà inscrit (même nom + prénom) pour éviter les doublons
+const dejaInscrit = (nom, prenom) => etudiants.find(e => sansAccent(e.nom) === sansAccent(nom) && sansAccent(e.prenom) === sansAccent(prenom));
+const pastillesGroupes = e => DB.groupesDe(e).map(g => `<span class="pastille accent">${esc(g)}</span>`).join(" ") || `<span class="muted">—</span>`;
 const ilYa = iso => {
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   return m < 1 ? "à l'instant" : m < 60 ? `il y a ${m} min` : `il y a ${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
@@ -174,7 +179,7 @@ function majDirect() {
   if (!z) return;
   const s = seanceSuivie;
   if (!s) { z.innerHTML = ""; return; }
-  const inscrits = etudiants.filter(e => e.groupe === s.groupe);
+  const inscrits = etudiants.filter(e => dansGroupe(e, s.groupe));
   const parCode = {};
   for (const p of passagesLive) (parCode[p.code] ||= []).push(p);
   const etat = l => {
@@ -305,7 +310,7 @@ async function ficheSeance(s, vue) {
 function syntheseSeance(s, l) {
   const parCode = {};
   for (const p of l) (parCode[p.code] ||= []).push(p);
-  const inscrits = etudiants.filter(e => e.groupe === s.groupe);
+  const inscrits = etudiants.filter(e => dansGroupe(e, s.groupe));
   // étudiants du groupe + éventuels passages d'étudiants qui n'y sont plus
   const lignes = inscrits.map(e => ({ nom: `${e.prenom} ${e.nom}`, tri: e.nom + e.prenom, l: parCode[e.code] || [] }));
   for (const code of Object.keys(parCode)) if (!inscrits.find(e => e.code === code))
@@ -354,7 +359,7 @@ function brancherEdition(zone, l, apres) {
 
 // Fenêtre de correction d'un passage par l'enseignant
 function ouvrirEdition(p, apres) {
-  const nomsGroupe = etudiants.filter(e => e.groupe === p.groupe).map(DB.nomCourt).filter(n => n !== p.etudiant)
+  const nomsGroupe = etudiants.filter(e => dansGroupe(e, p.groupe)).map(DB.nomCourt).filter(n => n !== p.etudiant)
     .sort((a, b) => a.localeCompare(b, "fr"));
   const assureurs = [...new Set([...nomsGroupe, "Enseignant·e", "Autre", ...(p.assureur ? [p.assureur] : [])])];
   const voies = topo.filter(v => v.actif !== false || v.id === p.voieId)
@@ -421,7 +426,7 @@ function exporterPassages(l, nom) {
 function vueEtudiants() {
   const c = contenu();
   const liste = etudiants.filter(e =>
-    (!filtreGroupe || e.groupe === filtreGroupe) &&
+    (!filtreGroupe || dansGroupe(e, filtreGroupe)) &&
     (!recherche || (e.nom + " " + e.prenom + " " + e.code).toLowerCase().includes(recherche.toLowerCase())));
   c.innerHTML = `
     <div class="grille g2 no-print">
@@ -430,14 +435,14 @@ function vueEtudiants() {
         <form id="f-add" class="grille g3" style="align-items:end">
           <div><label>Nom</label><input id="a-nom" required></div>
           <div><label>Prénom</label><input id="a-prenom" required></div>
-          <div><label>Groupe / créneau</label><input id="a-groupe" list="dl-groupes" placeholder="ex. Jeudi 12h" required></div>
+          <div><label>Groupe(s) / créneau(x)</label><input id="a-groupe" list="dl-groupes" placeholder="ex. Jeudi 12h + Vendredi 12h" required></div>
           <datalist id="dl-groupes">${groupes().map(g => `<option value="${esc(g)}">`).join("")}</datalist>
           <div><button class="primaire">Ajouter</button></div>
         </form>
       </div>
       <div class="carte">
         <h3>Import en liste</h3>
-        <p class="small muted">Une ligne par étudiant : <code>Nom;Prénom;Groupe</code> (copier-coller depuis un tableur, tabulations acceptées).</p>
+        <p class="small muted">Une ligne par étudiant : <code>Nom;Prénom;Groupe</code> (copier-coller depuis un tableur, tabulations acceptées). Plusieurs créneaux : <code>DUPONT;Léa;Jeudi 12h;Vendredi 12h</code>. Un étudiant déjà inscrit n'est pas recréé : ses nouveaux créneaux sont ajoutés à son profil.</p>
         <textarea id="import" rows="3" placeholder="DUPONT;Léa;Jeudi 12h"></textarea>
         <button id="btn-import" style="margin-top:8px">Importer</button>
       </div>
@@ -453,9 +458,9 @@ function vueEtudiants() {
       </div>
       <div class="table-scroll" style="margin-top:12px">
         ${liste.length ? `<table>
-          <thead><tr><th>Nom</th><th>Prénom</th><th>Groupe</th><th>Code</th><th></th></tr></thead>
+          <thead><tr><th>Nom</th><th>Prénom</th><th>Groupe(s)</th><th>Code</th><th></th></tr></thead>
           <tbody>${liste.map(e => `<tr>
-            <td><b>${esc(e.nom)}</b></td><td>${esc(e.prenom)}</td><td>${esc(e.groupe)}</td>
+            <td><b>${esc(e.nom)}</b></td><td>${esc(e.prenom)}</td><td>${pastillesGroupes(e)}</td>
             <td><code>${esc(e.code)}</code></td><td><button class="lien" data-voir="${e.code}">Voir</button></td></tr>`).join("")}</tbody></table>`
         : `<div class="vide">Aucun étudiant${etudiants.length ? " pour ce filtre" : ". Ajoutez-en ci-dessus."}</div>`}
       </div>
@@ -463,16 +468,40 @@ function vueEtudiants() {
 
   c.querySelector("#f-add").onsubmit = async ev => {
     ev.preventDefault();
-    const e = await DB.creerEtudiant({ nom: c.querySelector("#a-nom").value, prenom: c.querySelector("#a-prenom").value, groupe: c.querySelector("#a-groupe").value });
+    const nom = c.querySelector("#a-nom").value, prenom = c.querySelector("#a-prenom").value;
+    const nouveaux = DB.lireGroupes(c.querySelector("#a-groupe").value);
+    const existant = dejaInscrit(nom, prenom);
+    if (existant) {
+      // pas de doublon : on ajoute le créneau à son profil existant (même code, même carnet)
+      const actuels = DB.groupesDe(existant);
+      const ajout = nouveaux.filter(g => !actuels.includes(g));
+      if (!ajout.length) return toast(`${existant.prenom} ${existant.nom} est déjà inscrit·e sur ${actuels.join(" + ")}`);
+      if (!(await demander(`${existant.prenom} ${existant.nom} a déjà un profil (${actuels.join(" + ") || "sans groupe"}, code ${existant.code}). Ajouter « ${ajout.join(" + ")} » à ce profil plutôt que de créer un doublon ?`, "Ajouter au profil"))) return;
+      await DB.modifierGroupes(existant.code, [...actuels, ...ajout]);
+      await apresChangement();
+      return toast(`${existant.prenom} : créneau ajouté, même code ${existant.code}`);
+    }
+    const e = await DB.creerEtudiant({ nom, prenom, groupes: nouveaux });
     await apresChangement();
     toast(`${e.prenom} ajouté·e : code ${e.code}`);
   };
   c.querySelector("#btn-import").onclick = async () => {
     const lignes = c.querySelector("#import").value.split("\n").map(l => l.split(/[;\t,]/).map(s => s.trim())).filter(l => l[0] && l[1]);
     if (!lignes.length) return toast("Rien à importer");
-    for (const [nom, prenom, groupe] of lignes) await DB.creerEtudiant({ nom, prenom, groupe });
+    let crees = 0, completes = 0;
+    for (const [nom, prenom, ...reste] of lignes) {
+      const gs = DB.lireGroupes(reste);
+      const existant = dejaInscrit(nom, prenom);
+      if (existant) {
+        const actuels = DB.groupesDe(existant), ajout = gs.filter(g => !actuels.includes(g));
+        if (ajout.length) { existant.groupes = [...actuels, ...ajout]; await DB.modifierGroupes(existant.code, existant.groupes); completes++; }
+      } else {
+        etudiants.push(await DB.creerEtudiant({ nom, prenom, groupes: gs }));   // évite un doublon dans la même liste
+        crees++;
+      }
+    }
     await apresChangement();
-    toast(`${lignes.length} étudiant(s) importé(s)`);
+    toast(`${crees} étudiant(s) créé(s)${completes ? ` · ${completes} profil(s) complété(s) avec un nouveau créneau` : ""}`);
   };
   const rech = c.querySelector("#rech");
   rech.oninput = () => { recherche = rech.value; vueEtudiants(); const r = contenu().querySelector("#rech"); r.focus(); r.setSelectionRange(r.value.length, r.value.length); };
@@ -502,9 +531,16 @@ async function ficheEtudiant(code) {
   modal.innerHTML = `
     <div class="modal-fond"><div class="modal" style="max-width:900px">
       <div class="entete-carte">
-        <div><h2>${esc(e.prenom)} ${esc(e.nom)}</h2><p class="muted small">${esc(e.groupe)} · code <b>${esc(e.code)}</b></p></div>
+        <div><h2>${esc(e.prenom)} ${esc(e.nom)}</h2><p class="muted small">code <b>${esc(e.code)}</b> · ${pastillesGroupes(e)}</p></div>
         <button id="fermer">✕</button>
       </div>
+      <div class="ligne no-print" style="align-items:end;gap:8px;margin:6px 0 4px">
+        <div style="flex:1;min-width:240px"><label for="f-groupes">Créneaux de pratique</label>
+          <input id="f-groupes" list="dl-groupes-f" value="${esc(DB.groupesDe(e).join(" + "))}" placeholder="ex. Jeudi 12h + Vendredi 12h">
+          <datalist id="dl-groupes-f">${groupes().map(g => `<option value="${esc([...DB.groupesDe(e), g].filter((x, i, a) => a.indexOf(x) === i).join(" + "))}">`).join("")}</datalist></div>
+        <button id="f-groupes-ok">Enregistrer les créneaux</button>
+      </div>
+      <p class="small muted no-print" style="margin:0 0 6px">Séparez les créneaux par « + ». L'étudiant garde son code et son carnet : ses voies du jeudi et du vendredi sont réunies ici.</p>
       <div class="ligne" style="align-items:flex-start;gap:18px;margin:10px 0">
         <div id="qr-fiche"></div>
         <div class="grille g2" style="flex:1;min-width:260px">
@@ -531,6 +567,15 @@ async function ficheEtudiant(code) {
   modal.querySelector("#fermer").onclick = fermer;
   modal.querySelector(".modal-fond").onclick = ev => { if (ev.target.classList.contains("modal-fond")) fermer(); };
   brancherEdition(modal, l, () => ficheEtudiant(code));
+  modal.querySelector("#f-groupes-ok").onclick = async () => {
+    const gs = DB.lireGroupes(modal.querySelector("#f-groupes").value);
+    if (!gs.length) return toast("Indiquez au moins un créneau");
+    await DB.modifierGroupes(code, gs);
+    await charger(); await DB.majAnnuaire(etudiants);
+    toast(`Créneaux enregistrés : ${gs.join(" + ")}`);
+    ficheEtudiant(code);
+    if (onglet !== "direct") rendre();
+  };
   modal.querySelector("#suppr").onclick = async () => {
     if (!(await demander(`Supprimer définitivement ${e.prenom} ${e.nom} et tout son carnet ?`, "Supprimer"))) return;
     await DB.supprimerEtudiant(e.code); fermer(); toast("Étudiant supprimé"); await apresChangement();
@@ -540,7 +585,7 @@ async function ficheEtudiant(code) {
 // ================= QR CODES =================
 function vueQR() {
   const c = contenu();
-  const liste = etudiants.filter(e => !groupeQR || e.groupe === groupeQR);
+  const liste = etudiants.filter(e => !groupeQR || dansGroupe(e, groupeQR));
   c.innerHTML = `
     <div class="carte no-print">
       <div class="entete-carte">
@@ -553,7 +598,7 @@ function vueQR() {
     <div class="qr-grille">${liste.map(e => `
       <div class="qr-carte">
         <div style="font-weight:600">${esc(e.prenom)} ${esc(e.nom)}</div>
-        <div class="small" style="color:#666">${esc(e.groupe)} · Escalade</div>
+        <div class="small" style="color:#666">${esc(DB.groupesDe(e).join(" · "))} · Escalade</div>
         <div class="qr" data-qr="${e.code}"></div>
         <div class="code">${esc(e.code)}</div>
         <div class="small" style="color:#666;word-break:break-all">${esc(new URL("index.html", location.href).href)}</div>

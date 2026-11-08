@@ -74,11 +74,11 @@ async function connecter(code, interactif) {
     if (!e) return false;
     E = e;
     memo.set(CLE_CODE, E.code);
-    [topo, binomes] = await Promise.all([DB.getTopo(), DB.getAnnuaire(E.groupe)]);
+    [topo, binomes] = await Promise.all([DB.getTopo(), DB.getAnnuaire(DB.groupesDe(E))]);
     binomes = binomes.filter(n => n !== DB.nomCourt(E));
     document.getElementById("btn-deco").classList.remove("cache");
     rendre();
-    arrets.push(await DB.ecouterSeanceOuverte(E.groupe, s => {
+    arrets.push(await DB.ecouterSeanceOuverte(DB.groupesDe(E), s => {
       const avant = seance?.id;
       seance = s;
       if (!s) saisie = null;   // séance clôturée pendant une saisie : on l'abandonne
@@ -86,7 +86,7 @@ async function connecter(code, interactif) {
       if (avant !== s?.id && onglet === "seance") vueSaisie();
     }));
     // Annuaire en direct : la liste des assureurs suit les ajouts de l'enseignant
-    arrets.push(await DB.ecouterAnnuaire(E.groupe, l => {
+    arrets.push(await DB.ecouterAnnuaire(DB.groupesDe(E), l => {
       binomes = l.filter(n => n !== DB.nomCourt(E));
       majListeAssureurs();
     }));
@@ -121,7 +121,7 @@ function majListeAssureurs() {
 function rendre() {
   app.innerHTML = `
     <h2 style="margin-top:14px">${esc(E.prenom)} ${esc(E.nom)}</h2>
-    <p class="muted small" style="margin:0">${esc(E.groupe || "")}</p>
+    <p class="muted small" style="margin:0">${esc(DB.groupesDe(E).join(" · "))}</p>
     <div id="bandeau"></div>
     <nav class="onglets">
       ${[["seance", "Ma séance"], ["progression", "Progression"]]
@@ -287,7 +287,7 @@ async function enregistrer() {
   }
   try {
     await DB.ajouterPassage(E, seance?.id, {
-      voieId: v.id, relais: v.relais, couleur: v.couleur, cotation: v.cotation, nomVoie: v.nom, secteur: v.secteur,
+      groupe: seance.groupe, voieId: v.id, relais: v.relais, couleur: v.couleur, cotation: v.cotation, nomVoie: v.nom, secteur: v.secteur,
       mode: saisie.mode, resultat: saisie.resultat, assureur: saisie.assureur || "", ressenti: saisie.ressenti || ""
     });
     memo.set(clePrefs(), JSON.stringify({ mode: saisie.mode, assureur: saisie.assureur }));
