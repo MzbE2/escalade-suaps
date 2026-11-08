@@ -349,7 +349,7 @@ function tablePassages(l, avecNom, modifiable = false) {
         <td>${puce(p.couleur)} R${p.relais} · ${esc(p.nomVoie)}</td><td><b>${esc(p.cotation)}</b></td>
         <td>${libelle(MODES, p.mode)}</td><td><span class="pastille ${res[2] || ""}">${res[1] || ""}</span></td>
         <td class="small">${esc(p.assureur || "—")}</td><td class="small">${p.ressenti ? libelle(RESSENTIS, p.ressenti) : "—"}</td>
-        ${modifiable ? `<td class="no-print"><button class="icone" data-edit="${p.id}" title="Corriger cette voie">✎ Modifier</button></td>` : ""}</tr>`;
+        ${modifiable ? `<td class="no-print"><button class="icone" data-edit="${p.id}" title="Corriger ou supprimer cette voie">✎ Modifier</button></td>` : ""}</tr>`;
     }).join("")}</tbody></table></div>`;
 }
 
@@ -384,14 +384,23 @@ function ouvrirEdition(p, apres) {
       <div><label for="e-ass">Assuré·e par</label><select id="e-ass"><option value="">—</option>${assureurs.map(n => `<option ${n === p.assureur ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
       <div><label for="e-ress">Ressenti</label><select id="e-ress"><option value="">—</option>${opt(RESSENTIS, p.ressenti)}</select></div>
     </div>
-    <div class="ligne" style="justify-content:flex-end;margin-top:18px">
-      <button id="e-annuler">Annuler</button><button class="primaire" id="e-ok">Enregistrer</button></div>
+    <div class="ligne espace" style="margin-top:18px">
+      <button class="danger" id="e-suppr">🗑 Supprimer cette voie</button>
+      <div class="ligne"><button id="e-annuler">Annuler</button><button class="primaire" id="e-ok">Enregistrer</button></div></div>
   </div>`;
   document.body.appendChild(d);
   const fermer = () => d.remove();
   d.querySelector("#e-fermer").onclick = fermer;
   d.querySelector("#e-annuler").onclick = fermer;
   d.onclick = ev => { if (ev.target === d) fermer(); };
+  d.querySelector("#e-suppr").onclick = async () => {
+    if (!(await demander(`Supprimer définitivement « ${p.nomVoie} » (${p.cotation}) de ${p.etudiant}, du ${fmtDate(p.date)} à ${fmtHeure(p.date)} ? Elle disparaît de son carnet et de la séance.`, "Supprimer"))) return;
+    try {
+      await DB.supprimerPassage(p);
+      fermer(); toast("Voie supprimée");
+      if (apres) apres();
+    } catch (e) { console.error(e); toast("Suppression impossible : vérifiez la connexion."); }
+  };
   d.querySelector("#e-ok").onclick = async ev => {
     const champs = {
       mode: d.querySelector("#e-mode").value,
