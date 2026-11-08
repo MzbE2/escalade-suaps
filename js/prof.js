@@ -137,6 +137,7 @@ function vueDirect() {
         <div class="ligne">
           ${ouvertes.length ? ouvertes.map(s => `<button data-suivre="${s.id}" class="${seanceSuivie?.id === s.id ? "primaire" : ""}"><span class="point-live"></span>${esc(s.groupe)} · ${fmtHeure(s.debut)}</button>`).join("")
             : `<span class="muted">Aucune séance ouverte.</span>`}
+          ${seanceSuivie ? `<button class="danger-plein" id="btn-cloturer">■ Clôturer la séance ${esc(seanceSuivie.groupe)}</button>` : ""}
         </div>
         <form id="f-ouvrir" class="ligne">
           <select id="o-groupe" style="width:220px" required>
@@ -156,7 +157,14 @@ function vueDirect() {
     if (ouvertes.find(s => s.groupe === g)) return toast("Une séance est déjà ouverte pour ce groupe");
     const s = await DB.ouvrirSeance(g);
     await suivre(s);
+    vueDirect();
     toast(`Séance ouverte pour ${g}`);
+  };
+  const clot = c.querySelector("#btn-cloturer");
+  if (clot) clot.onclick = async () => {
+    const s = seanceSuivie;
+    if (!(await demander(`Clôturer la séance « ${s.groupe} » ? Les étudiants ne pourront plus y ajouter de voies (elles iront dans leur carnet).`, "Clôturer"))) return;
+    await DB.cloturerSeance(s.id); toast("Séance clôturée");
   };
   majDirect();
 }
@@ -192,7 +200,7 @@ function majDirect() {
         <div class="carte">
           <div class="entete-carte">
             <h3>${esc(s.groupe)} · depuis ${fmtHeure(s.debut)}</h3>
-            <div class="ligne"><button id="btn-csv-live">⬇ CSV</button><button class="danger" id="btn-cloturer">Clôturer la séance</button></div>
+            <button id="btn-csv-live">⬇ CSV</button>
           </div>
           <div class="table-scroll"><table>
             <thead><tr><th>Étudiant</th><th class="num">Voies</th><th class="num">Ench.</th><th>Max tête</th><th>Max moul.</th><th>Dernière voie</th></tr></thead>
@@ -223,17 +231,20 @@ function majDirect() {
           return `<div class="passage${neuf ? " nouveau" : ""}">${puce(p.couleur)}<span class="cot">${esc(p.cotation)}</span>
             <div class="info"><div><b>${esc(p.etudiant)}</b> <span class="small muted">· R${p.relais} ${libelle(MODES, p.mode).toLowerCase()}</span></div>
             <div class="small muted">${fmtHeure(p.date)}${p.assureur ? " · ass. " + esc(p.assureur) : ""}${p.ressenti ? " · " + libelle(RESSENTIS, p.ressenti) : ""}</div></div>
-            <span class="pastille ${res[2] || ""}">${res[1] || ""}</span></div>`;
+            <span class="pastille ${res[2] || ""}">${res[1] || ""}</span>
+            <button class="lien icone" data-edit="${p.id}" title="Corriger cette voie">✎</button></div>`;
         }).join("") || `<div class="vide">Les voies apparaîtront ici dès qu'un étudiant les enregistre.</div>`}</div>
       </div>
     </div>`;
   passagesLive.forEach(p => vusIds.add(p.id));
   z.querySelectorAll("[data-voir]").forEach(tr => tr.onclick = () => ficheEtudiant(tr.dataset.voir));
   z.querySelector("#btn-csv-live").onclick = () => exporterPassages(passagesLive, `seance-${s.groupe}-${jour(s.debut)}`);
-  z.querySelector("#btn-cloturer").onclick = async () => {
-    if (!(await demander(`Clôturer la séance « ${s.groupe} » ? Les étudiants ne pourront plus y ajouter de voies (elles iront dans leur carnet).`, "Clôturer"))) return;
-    await DB.cloturerSeance(s.id); toast("Séance clôturée");
-  };
+  // Correction depuis le fil (la vue se met à jour seule grâce à l'écoute en direct)
+  z.querySelectorAll("[data-edit]").forEach(b => b.onclick = ev => {
+    ev.stopPropagation();
+    const p = passagesLive.find(x => x.id === b.dataset.edit);
+    if (p) ouvrirEdition(p);
+  });
 }
 
 // ================= SÉANCES (historique) =================
@@ -256,24 +267,32 @@ async function vueSeances() {
   c.querySelectorAll("[data-voir-s]").forEach(b => b.onclick = () => ficheSeance(liste.find(s => s.id === b.dataset.voirS)));
 }
 
-async function ficheSeance(s) {
+async function ficheSeance(s, vue) {
   const l = await DB.listerPassagesSeance(s.id);
+  vue ||= s.ouverte ? "detail" : "synthese";   // séance clôturée : on ouvre sur la synthèse
   modal.innerHTML = `
-    <div class="modal-fond"><div class="modal" style="max-width:900px">
+    <div class="modal-fond"><div class="modal" style="max-width:960px">
       <div class="entete-carte">
         <div><h2>${esc(s.groupe)}</h2><p class="muted small">${fmtDate(s.debut)} · ${fmtHeure(s.debut)}${s.fin ? " – " + fmtHeure(s.fin) : ""} · ${l.length} voies · ${new Set(l.map(p => p.code)).size} étudiants</p></div>
         <button id="fermer">✕</button>
       </div>
-      ${tablePassages(l, true)}
-      <div class="ligne espace" style="margin-top:16px">
+      <nav class="onglets" style="margin-top:4px">
+        <button data-vue="synthese" class="${vue === "synthese" ? "actif" : ""}">Synthèse par étudiant</button>
+        <button data-vue="detail" class="${vue === "detail" ? "actif" : ""}">Détail des voies (modifiable)</button>
+      </nav>
+      <div id="vue-seance">${vue === "synthese" ? syntheseSeance(s, l) : tablePassages(l, true, true)}</div>
+      <div class="ligne espace no-print" style="margin-top:16px">
         <button class="danger" id="suppr-s">Supprimer la séance</button>
-        <div class="ligne">${s.ouverte ? `<button id="clot-s">Clôturer</button>` : ""}<button class="primaire" id="csv-s">⬇ Export CSV</button></div>
+        <div class="ligne">${s.ouverte ? `<button id="clot-s">Clôturer</button>` : ""}<button id="print-s">🖨 Imprimer</button><button class="primaire" id="csv-s">⬇ Export CSV</button></div>
       </div>
     </div></div>`;
   const fermer = () => { modal.innerHTML = ""; };
   modal.querySelector("#fermer").onclick = fermer;
   modal.querySelector(".modal-fond").onclick = ev => { if (ev.target.classList.contains("modal-fond")) fermer(); };
+  modal.querySelectorAll("[data-vue]").forEach(b => b.onclick = () => ficheSeance(s, b.dataset.vue));
+  brancherEdition(modal, l, () => ficheSeance(s, vue));
   modal.querySelector("#csv-s").onclick = () => exporterPassages(l, `seance-${s.groupe}-${jour(s.debut)}`);
+  modal.querySelector("#print-s").onclick = () => window.print();
   const clot = modal.querySelector("#clot-s");
   if (clot) clot.onclick = async () => { await DB.cloturerSeance(s.id); fermer(); toast("Séance clôturée"); vueSeances(); };
   modal.querySelector("#suppr-s").onclick = async () => {
@@ -282,18 +301,109 @@ async function ficheSeance(s) {
   };
 }
 
-function tablePassages(l, avecNom) {
+// Synthèse d'une séance : pour chaque étudiant, ce qu'il a réussi (sans l'assureur)
+function syntheseSeance(s, l) {
+  const parCode = {};
+  for (const p of l) (parCode[p.code] ||= []).push(p);
+  const inscrits = etudiants.filter(e => e.groupe === s.groupe);
+  // étudiants du groupe + éventuels passages d'étudiants qui n'y sont plus
+  const lignes = inscrits.map(e => ({ nom: `${e.prenom} ${e.nom}`, tri: e.nom + e.prenom, l: parCode[e.code] || [] }));
+  for (const code of Object.keys(parCode)) if (!inscrits.find(e => e.code === code))
+    lignes.push({ nom: parCode[code][0].etudiant, tri: parCode[code][0].etudiant, l: parCode[code] });
+  lignes.sort((a, b) => (b.l.length > 0) - (a.l.length > 0) || a.tri.localeCompare(b.tri, "fr"));
+  const parCot = arr => [...arr].sort((a, b) => rangCotation(b.cotation) - rangCotation(a.cotation));
+  const chip = p => `<span class="voie-chip">${puce(p.couleur)}<b>${esc(p.cotation)}</b> ${esc(p.nomVoie)} <span class="m">R${p.relais} · ${p.mode === "tete" ? "tête" : "moul."}</span></span>`;
+  const resume = arr => parCot(arr).map(p => `${esc(p.cotation)} ${esc(p.nomVoie)} (${p.mode === "tete" ? "tête" : "moul."})`).join(", ");
+  if (!lignes.length) return `<p class="muted">Aucun étudiant.</p>`;
+  return `<div class="synthese">${lignes.map(({ nom, l: v }) => {
+    if (!v.length) return `<div class="synth-etu"><div class="tete"><b>${esc(nom)}</b><span class="muted small">Aucune voie enregistrée</span></div></div>`;
+    const ok = v.filter(p => p.resultat === "enchaine"), pose = v.filter(p => p.resultat === "pose"), ko = v.filter(p => p.resultat === "echec");
+    return `<div class="synth-etu">
+      <div class="tete"><b>${esc(nom)}</b>
+        <div class="chiffres"><span><b>${ok.length}</b>/${v.length} enchaînée${ok.length > 1 ? "s" : ""}</span>
+          <span>Max tête <b>${maxTete(v) || "—"}</b></span><span>Max moulinette <b>${maxMoulinette(v) || "—"}</b></span></div></div>
+      ${ok.length ? `<div class="voies-chips">${parCot(ok).map(chip).join("")}</div>` : `<div class="sous">Aucune voie enchaînée.</div>`}
+      ${pose.length ? `<div class="sous"><span class="pastille warn">Avec pose</span> ${resume(pose)}</div>` : ""}
+      ${ko.length ? `<div class="sous"><span class="pastille bad">Pas au sommet</span> ${resume(ko)}</div>` : ""}
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function tablePassages(l, avecNom, modifiable = false) {
   if (!l.length) return `<p class="muted">Aucune voie.</p>`;
   return `<div class="table-scroll"><table>
-    <thead><tr><th>Heure</th>${avecNom ? "<th>Étudiant</th>" : "<th>Date</th>"}<th>Voie</th><th>Cot.</th><th>Mode</th><th>Résultat</th><th>Assureur</th><th>Ressenti</th></tr></thead>
+    <thead><tr><th>Heure</th>${avecNom ? "<th>Étudiant</th>" : "<th>Date</th>"}<th>Voie</th><th>Cot.</th><th>Mode</th><th>Résultat</th><th>Assureur</th><th>Ressenti</th>${modifiable ? `<th class="no-print"></th>` : ""}</tr></thead>
     <tbody>${[...l].reverse().map(p => {
       const res = RESULTATS.find(r => r[0] === p.resultat) || [];
       return `<tr><td class="small">${fmtHeure(p.date)}</td>
         <td>${avecNom ? `<b>${esc(p.etudiant)}</b>` : `<span class="small">${fmtDate(p.date)}</span>`}</td>
         <td>${puce(p.couleur)} R${p.relais} · ${esc(p.nomVoie)}</td><td><b>${esc(p.cotation)}</b></td>
         <td>${libelle(MODES, p.mode)}</td><td><span class="pastille ${res[2] || ""}">${res[1] || ""}</span></td>
-        <td class="small">${esc(p.assureur || "—")}</td><td class="small">${p.ressenti ? libelle(RESSENTIS, p.ressenti) : "—"}</td></tr>`;
+        <td class="small">${esc(p.assureur || "—")}</td><td class="small">${p.ressenti ? libelle(RESSENTIS, p.ressenti) : "—"}</td>
+        ${modifiable ? `<td class="no-print"><button class="icone" data-edit="${p.id}" title="Corriger cette voie">✎ Modifier</button></td>` : ""}</tr>`;
     }).join("")}</tbody></table></div>`;
+}
+
+// Branche les boutons ✎ d'une zone sur la fenêtre de correction
+function brancherEdition(zone, l, apres) {
+  zone.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
+    const p = l.find(x => x.id === b.dataset.edit);
+    if (p) ouvrirEdition(p, apres);
+  });
+}
+
+// Fenêtre de correction d'un passage par l'enseignant
+function ouvrirEdition(p, apres) {
+  const nomsGroupe = etudiants.filter(e => e.groupe === p.groupe).map(DB.nomCourt).filter(n => n !== p.etudiant)
+    .sort((a, b) => a.localeCompare(b, "fr"));
+  const assureurs = [...new Set([...nomsGroupe, "Enseignant·e", "Autre", ...(p.assureur ? [p.assureur] : [])])];
+  const voies = topo.filter(v => v.actif !== false || v.id === p.voieId)
+    .sort((a, b) => a.relais - b.relais || rangCotation(a.cotation) - rangCotation(b.cotation));
+  const opt = (liste, val) => liste.map(([k, lib]) => `<option value="${k}" ${k === val ? "selected" : ""}>${esc(lib)}</option>`).join("");
+  const d = document.createElement("div");
+  d.className = "modal-fond"; d.style.zIndex = 60;
+  d.innerHTML = `<div class="modal" style="max-width:560px">
+    <div class="entete-carte"><div><h3>Corriger la voie de ${esc(p.etudiant)}</h3>
+      <p class="muted small">${fmtDate(p.date)} · ${fmtHeure(p.date)}</p></div><button id="e-fermer">✕</button></div>
+    <div class="form-edit">
+      <div class="large"><label for="e-voie">Voie</label>
+        <select id="e-voie">${voies.some(v => v.id === p.voieId) ? ""
+            : `<option value="" selected>R${p.relais} · ${esc(p.nomVoie)} — ${esc(p.cotation)} · ${esc(p.couleur)} (inchangée)</option>`}
+          ${voies.map(v => `<option value="${esc(v.id)}" ${v.id === p.voieId ? "selected" : ""}>R${v.relais} · ${esc(v.nom)} — ${esc(v.cotation)} · ${esc(v.couleur)}</option>`).join("")}</select></div>
+      <div><label for="e-mode">Mode</label><select id="e-mode">${opt(MODES, p.mode)}</select></div>
+      <div><label for="e-res">Résultat</label><select id="e-res">${opt(RESULTATS, p.resultat)}</select></div>
+      <div><label for="e-ass">Assuré·e par</label><select id="e-ass"><option value="">—</option>${assureurs.map(n => `<option ${n === p.assureur ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+      <div><label for="e-ress">Ressenti</label><select id="e-ress"><option value="">—</option>${opt(RESSENTIS, p.ressenti)}</select></div>
+    </div>
+    <div class="ligne" style="justify-content:flex-end;margin-top:18px">
+      <button id="e-annuler">Annuler</button><button class="primaire" id="e-ok">Enregistrer</button></div>
+  </div>`;
+  document.body.appendChild(d);
+  const fermer = () => d.remove();
+  d.querySelector("#e-fermer").onclick = fermer;
+  d.querySelector("#e-annuler").onclick = fermer;
+  d.onclick = ev => { if (ev.target === d) fermer(); };
+  d.querySelector("#e-ok").onclick = async ev => {
+    const champs = {
+      mode: d.querySelector("#e-mode").value,
+      resultat: d.querySelector("#e-res").value,
+      assureur: d.querySelector("#e-ass").value,
+      ressenti: d.querySelector("#e-ress").value
+    };
+    const v = topo.find(x => x.id === d.querySelector("#e-voie").value);
+    if (v && v.id !== p.voieId)
+      Object.assign(champs, { voieId: v.id, relais: v.relais, couleur: v.couleur, cotation: v.cotation, nomVoie: v.nom, secteur: v.secteur });
+    ev.target.disabled = true;
+    try {
+      await DB.modifierPassage(p, champs);
+      Object.assign(p, champs);
+      fermer(); toast("Voie corrigée ✔");
+      if (apres) apres();
+    } catch (e) {
+      console.error(e); ev.target.disabled = false;
+      toast("Modification impossible : vérifiez la connexion.");
+    }
+  };
 }
 
 function exporterPassages(l, nom) {
@@ -410,7 +520,7 @@ async function ficheEtudiant(code) {
         <div class="barre"><span style="width:${n.tete / maxB * 100}%;background:var(--accent)"></span><span style="width:${n.moulinette / maxB * 100}%;background:var(--ink-2)"></span></div>
         <span class="num small">${n.tete + n.moulinette}</span>`).join("")}</div>` : `<p class="muted">Aucune voie enchaînée.</p>`}
       <h3 style="margin-top:18px">Carnet (${l.length})</h3>
-      ${tablePassages(l, false)}
+      ${tablePassages(l, false, true)}
       <div class="ligne espace" style="margin-top:20px">
         <button class="danger" id="suppr">Supprimer cet étudiant</button>
         <a class="btn" href="${urlEtudiant(e.code)}" target="_blank">Ouvrir sa vue étudiant ↗</a>
@@ -420,6 +530,7 @@ async function ficheEtudiant(code) {
   const fermer = () => { modal.innerHTML = ""; };
   modal.querySelector("#fermer").onclick = fermer;
   modal.querySelector(".modal-fond").onclick = ev => { if (ev.target.classList.contains("modal-fond")) fermer(); };
+  brancherEdition(modal, l, () => ficheEtudiant(code));
   modal.querySelector("#suppr").onclick = async () => {
     if (!(await demander(`Supprimer définitivement ${e.prenom} ${e.nom} et tout son carnet ?`, "Supprimer"))) return;
     await DB.supprimerEtudiant(e.code); fermer(); toast("Étudiant supprimé"); await apresChangement();

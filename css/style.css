@@ -237,3 +237,27 @@ tbody tr:hover { background: var(--surface-2); }
 .mur-relais { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 4px; }
 .mur-relais div { border-radius: 6px; padding: 6px 2px; text-align: center; font-size: .8rem; background: var(--surface-2); }
 .mur-relais b { display: block; font-size: 1.1rem; font-family: "Barlow Condensed", "Arial Narrow", sans-serif; }
+
+/* ---------- Espace enseignant : clôture, correction, synthèse ---------- */
+button.danger-plein { background: var(--bad); color: #fff; border-color: var(--bad); font-weight: 600; }
+button.icone { padding: 4px 8px; font-size: .9rem; }
+.form-edit { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+.form-edit .large { grid-column: 1 / -1; }
+@media (max-width: 560px) { .form-edit { grid-template-columns: 1fr; } }
+.synthese { display: grid; gap: 10px; margin-top: 8px; }
+.synth-etu { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.synth-etu .tete { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.synth-etu .chiffres { display: flex; gap: 14px; flex-wrap: wrap; font-size: .9rem; color: var(--ink-2); }
+.synth-etu .chiffres b { color: var(--ink); }
+.voies-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.voie-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 6px; font-size: .88rem; background: var(--surface-2); }
+.voie-chip .m { font-size: .75rem; color: var(--ink-2); }
+.synth-etu .sous { font-size: .85rem; color: var(--ink-2); margin-top: 8px; }
+/* Impression d'une fiche ouverte (synthèse de séance) : seule la fenêtre est imprimée */
+@media print {
+  body:has(#modal .modal) #app { display: none !important; }
+  #modal .modal-fond { position: static; background: none; padding: 0; display: block; }
+  #modal .modal { max-width: none !important; max-height: none; overflow: visible; padding: 0; }
+  #modal #fermer { display: none; }
+  .synth-etu { break-inside: avoid; }
+}

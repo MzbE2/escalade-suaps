@@ -307,6 +307,18 @@ export async function supprimerPassage(p) {
   await b.commit();
 }
 
+// Correction d'un passage par l'enseignant : carnet de l'étudiant + copie de la séance
+export async function modifierPassage(p, champs) {
+  if (MODE_DEMO) { Object.assign(lireDemo().passages[p.id] || {}, champs); ecrireDemo(); return; }
+  await fb();
+  await fs.updateDoc(fs.doc(db, "etudiants", p.code, "passages", p.id), champs);
+  if (p.seanceId) {
+    // la séance a pu être supprimée entre-temps : le carnet reste la référence
+    try { await fs.updateDoc(fs.doc(db, "seances", p.seanceId, "passages", p.id), champs); }
+    catch (e) { if (e.code !== "not-found") throw e; }
+  }
+}
+
 const parDate = l => l.sort((a, b) => a.date.localeCompare(b.date));
 
 export async function listerPassagesEtudiant(code) {
