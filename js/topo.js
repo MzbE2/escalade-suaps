@@ -23,10 +23,10 @@ export const rangCotation = c => COTATIONS.indexOf(String(c || "").trim().toLowe
 
 // Créneaux de pratique : uniquement le jeudi et/ou le vendredi
 export const CRENEAUX = ["Jeudi", "Vendredi"];
-// « jeudi », « JEUDI 12h », « Jeu » → « Jeudi » ; tout autre texte → null
+// Seulement « Jeudi » ou « Vendredi » (majuscules indifférentes), sans heure ; tout autre texte → null
 export const normaliserCreneau = t => {
   const x = String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
-  return CRENEAUX.find(c => x.startsWith(c.toLowerCase().slice(0, 3))) || null;
+  return CRENEAUX.find(c => x === c.toLowerCase()) || null;
 };
 
 export const MODES = [["moulinette", "Moulinette"], ["tete", "En tête"]];

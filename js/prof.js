@@ -445,7 +445,7 @@ function vueEtudiants() {
       </div>
       <div class="carte">
         <h3>Import en liste</h3>
-        <p class="small muted">Une ligne par étudiant : <code>Nom;Prénom;Groupe</code> (copier-coller depuis un tableur, tabulations acceptées). Groupe = <code>Jeudi</code>, <code>Vendredi</code> ou les deux : <code>DUPONT;Léa;Jeudi;Vendredi</code>. Un étudiant déjà inscrit n'est pas recréé : ses nouveaux créneaux sont ajoutés à son profil.</p>
+        <p class="small muted">Une ligne par étudiant : <code>Nom;Prénom;Groupe</code> (copier-coller depuis un tableur, tabulations acceptées). Groupe = <code>Jeudi</code> ou <code>Vendredi</code> (sans heure), ou les deux : <code>DUPONT;Léa;Jeudi;Vendredi</code>. Un étudiant déjà inscrit n'est pas recréé : ses nouveaux créneaux sont ajoutés à son profil.</p>
         <textarea id="import" rows="3" placeholder="DUPONT;Léa;Jeudi"></textarea>
         <button id="btn-import" style="margin-top:8px">Importer</button>
       </div>
@@ -508,7 +508,7 @@ function vueEtudiants() {
     }
     await apresChangement();
     toast(`${crees} étudiant(s) créé(s)${completes ? ` · ${completes} profil(s) complété(s) avec un nouveau créneau` : ""}`);
-    if (refusees.length) setTimeout(() => demander(`Non importé(s), créneau absent ou différent de Jeudi / Vendredi : ${refusees.join(", ")}.`, "OK"), 300);
+    if (refusees.length) setTimeout(() => demander(`Non importé(s), le groupe doit être exactement « Jeudi » ou « Vendredi », sans heure : ${refusees.join(", ")}.`, "OK"), 300);
   };
   const rech = c.querySelector("#rech");
   rech.oninput = () => { recherche = rech.value; vueEtudiants(); const r = contenu().querySelector("#rech"); r.focus(); r.setSelectionRange(r.value.length, r.value.length); };

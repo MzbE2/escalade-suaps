@@ -74,7 +74,7 @@ Ce que garantissent ces règles :
 
 ## 5. Première utilisation
 
-1. **Étudiants** : collez votre liste `Nom;Prénom;Groupe` (ex. `DUPONT;Léa;Jeudi 12h`). Le groupe doit être écrit exactement pareil pour tous les étudiants d'un même créneau.
+1. **Étudiants** : collez votre liste `Nom;Prénom;Groupe` (ex. `DUPONT;Léa;Jeudi`). Le groupe est `Jeudi` ou `Vendredi` (sans heure) ; pour les deux : `DUPONT;Léa;Jeudi;Vendredi`.
 2. **QR codes** : filtrez par groupe et imprimez les cartes.
 3. **Topo** : les 57 voies d'octobre 2026 (source Oblyk) sont préchargées. Vérifiez les couleurs claires (blanc, gris, beige), puis cliquez sur **Enregistrer le topo**.
 4. **Photos** : dans l'onglet Topo, cliquez sur « ＋ Photo » à côté d'une voie. Sur téléphone, vous pouvez photographier la voie directement. La photo est compressée automatiquement, puis s'affiche pour l'étudiant quand il choisit la voie.
