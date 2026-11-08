@@ -155,6 +155,15 @@ export async function getAnnuaire(groupe) {
   const s = await fs.getDoc(fs.doc(db, "config", "annuaire"));
   return (s.exists() && s.data().groupes?.[groupe]) || [];
 }
+// Écoute en direct de l'annuaire d'un groupe : un étudiant ajouté par l'enseignant
+// apparaît tout de suite dans la liste « Assuré·e par », sans recharger la page.
+export async function ecouterAnnuaire(groupe, cb) {
+  if (MODE_DEMO) return ecouterDemo(() => cb(clone(lireDemo().annuaire.groupes[groupe] || [])));
+  await fb();
+  return fs.onSnapshot(fs.doc(db, "config", "annuaire"),
+    s => cb((s.exists() && s.data().groupes?.[groupe]) || []),
+    e => console.error(e));
+}
 export async function majAnnuaire(etudiants) {
   const groupes = {};
   for (const e of etudiants) (groupes[e.groupe || "Sans groupe"] ||= []).push(nomCourt(e));

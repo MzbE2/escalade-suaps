@@ -85,6 +85,11 @@ async function connecter(code, interactif) {
       majBandeau(); majSeance();
       if (avant !== s?.id && onglet === "seance") vueSaisie();
     }));
+    // Annuaire en direct : la liste des assureurs suit les ajouts de l'enseignant
+    arrets.push(await DB.ecouterAnnuaire(E.groupe, l => {
+      binomes = l.filter(n => n !== DB.nomCourt(E));
+      majListeAssureurs();
+    }));
     arrets.push(await DB.ecouterPassagesEtudiant(E.code, l => { passages = l; majSeance(); if (onglet === "progression") vueProgression(); }));
     return true;
   } catch (err) {
@@ -98,6 +103,19 @@ document.getElementById("btn-deco").onclick = () => {
   arrets.forEach(f => { try { f(); } catch (e) {} }); arrets = [];
   memo.del(CLE_CODE); E = null; seance = null; passages = []; saisie = null; vueConnexion();
 };
+
+// Met à jour les options du menu « Assuré·e par » s'il est affiché, sans perdre le choix en cours
+function optionsAssureurs() {
+  const choix = saisie?.assureur || "";
+  return `<option value="">— Choisir —</option>
+        ${binomes.map(n => `<option ${choix === n ? "selected" : ""}>${esc(n)}</option>`).join("")}
+        <option ${choix === "Enseignant·e" ? "selected" : ""}>Enseignant·e</option>
+        <option ${choix === "Autre" ? "selected" : ""}>Autre</option>`;
+}
+function majListeAssureurs() {
+  const sel = document.getElementById("s-ass");
+  if (sel) sel.innerHTML = optionsAssureurs();
+}
 
 // ---------------- Structure de la page ----------------
 function rendre() {
@@ -239,10 +257,7 @@ function vueSaisie() {
       <label>Résultat</label>${seg("resultat", RESULTATS)}
       <label for="s-ass">Assuré·e par</label>
       <select id="s-ass">
-        <option value="">— Choisir —</option>
-        ${binomes.map(n => `<option ${saisie.assureur === n ? "selected" : ""}>${esc(n)}</option>`).join("")}
-        <option ${saisie.assureur === "Enseignant·e" ? "selected" : ""}>Enseignant·e</option>
-        <option ${saisie.assureur === "Autre" ? "selected" : ""}>Autre</option>
+        ${optionsAssureurs()}
       </select>
       <label>Ressenti</label>${seg("ressenti", RESSENTIS)}
       <button class="primaire plein" id="s-ok" style="margin-top:18px" ${saisie.resultat ? "" : "disabled"}>Enregistrer</button>
