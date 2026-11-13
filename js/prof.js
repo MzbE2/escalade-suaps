@@ -3,7 +3,7 @@
 // =====================================================================
 import * as DB from "./db.js";
 import {
-  SECTEURS, COULEURS, COTATIONS, TOUTES_PRISES, CRENEAUX, MODES, RESULTATS, RESSENTIS, libelle, rangCotation,
+  SECTEURS, COULEURS, COTATIONS, TOUTES_PRISES, CRENEAUX, MODES, RESULTATS, RESSENTIS, OBJECTIFS, libelle, rangCotation,
   fmtDate, fmtHeure, esc
 } from "./topo.js";
 import { maxTete, maxMoulinette, pyramide, jour, meilleure, enchaine } from "./stats.js";
@@ -243,7 +243,7 @@ function majDirect() {
           const neuf = !vusIds.has(p.id);
           return `<div class="passage${neuf ? " nouveau" : ""}">${puce(p.couleur)}<span class="cot">${esc(p.cotation)}</span>
             <div class="info"><div><b>${esc(p.etudiant)}</b> <span class="small muted">· R${p.relais} ${libelle(MODES, p.mode).toLowerCase()}</span></div>
-            <div class="small muted">${fmtHeure(p.date)}${p.assureur ? " · ass. " + esc(p.assureur) : ""}${p.ressenti ? " · " + libelle(RESSENTIS, p.ressenti) : ""}</div></div>
+            <div class="small muted">${p.objectif ? `<b class="txt-objectif ${p.objectif}">${libelle(OBJECTIFS, p.objectif)}</b> · ` : ""}${fmtHeure(p.date)}${p.assureur ? " · ass. " + esc(p.assureur) : ""}${p.ressenti ? " · " + libelle(RESSENTIS, p.ressenti) : ""}</div></div>
             <span class="pastille ${res[2] || ""}">${res[1] || ""}</span>
             <button class="lien icone" data-edit="${p.id}" title="Corriger cette voie">✎</button></div>`;
         }).join("") || `<div class="vide">Les voies apparaîtront ici dès qu'un étudiant les enregistre.</div>`}</div>
@@ -345,12 +345,13 @@ function syntheseSeance(s, l) {
 function tablePassages(l, avecNom, modifiable = false) {
   if (!l.length) return `<p class="muted">Aucune voie.</p>`;
   return `<div class="table-scroll"><table>
-    <thead><tr><th>Heure</th>${avecNom ? "<th>Étudiant</th>" : "<th>Date</th>"}<th>Voie</th><th>Cot.</th><th>Mode</th><th>Résultat</th><th>Assureur</th><th>Ressenti</th>${modifiable ? `<th class="no-print"></th>` : ""}</tr></thead>
+    <thead><tr><th>Heure</th>${avecNom ? "<th>Étudiant</th>" : "<th>Date</th>"}<th>Voie</th><th>Cot.</th><th>Exercice</th><th>Mode</th><th>Résultat</th><th>Assureur</th><th>Ressenti</th>${modifiable ? `<th class="no-print"></th>` : ""}</tr></thead>
     <tbody>${[...l].reverse().map(p => {
       const res = RESULTATS.find(r => r[0] === p.resultat) || [];
       return `<tr><td class="small">${fmtHeure(p.date)}</td>
         <td>${avecNom ? `<b>${esc(p.etudiant)}</b>` : `<span class="small">${fmtDate(p.date)}</span>`}</td>
         <td>${puce(p.couleur)} R${p.relais} · ${esc(p.nomVoie)}</td><td><b>${esc(p.cotation)}</b></td>
+        <td>${p.objectif ? `<span class="pastille exo ${p.objectif}">${libelle(OBJECTIFS, p.objectif)}</span>` : `<span class="muted">—</span>`}</td>
         <td>${libelle(MODES, p.mode)}</td><td><span class="pastille ${res[2] || ""}">${res[1] || ""}</span></td>
         <td class="small">${esc(p.assureur || "—")}</td><td class="small">${p.ressenti ? libelle(RESSENTIS, p.ressenti) : "—"}</td>
         ${modifiable ? `<td class="no-print"><button class="icone" data-edit="${p.id}" title="Corriger ou supprimer cette voie">✎ Modifier</button></td>` : ""}</tr>`;
@@ -383,6 +384,7 @@ function ouvrirEdition(p, apres) {
         <select id="e-voie">${voies.some(v => v.id === p.voieId) ? ""
             : `<option value="" selected>R${p.relais} · ${esc(p.nomVoie)} — ${esc(p.cotation)} · ${esc(p.couleur)} (inchangée)</option>`}
           ${voies.map(v => `<option value="${esc(v.id)}" ${v.id === p.voieId ? "selected" : ""}>R${v.relais} · ${esc(v.nom)} — ${esc(v.cotation)} · ${esc(v.couleur)}</option>`).join("")}</select></div>
+      <div><label for="e-obj">Type d'exercice</label><select id="e-obj"><option value="">—</option>${opt(OBJECTIFS, p.objectif)}</select></div>
       <div><label for="e-mode">Mode</label><select id="e-mode">${opt(MODES, p.mode)}</select></div>
       <div><label for="e-res">Résultat</label><select id="e-res">${opt(RESULTATS, p.resultat)}</select></div>
       <div><label for="e-ass">Assuré·e par</label><select id="e-ass"><option value="">—</option>${assureurs.map(n => `<option ${n === p.assureur ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
@@ -407,6 +409,7 @@ function ouvrirEdition(p, apres) {
   };
   d.querySelector("#e-ok").onclick = async ev => {
     const champs = {
+      objectif: d.querySelector("#e-obj").value,
       mode: d.querySelector("#e-mode").value,
       resultat: d.querySelector("#e-res").value,
       assureur: d.querySelector("#e-ass").value,
@@ -429,9 +432,9 @@ function ouvrirEdition(p, apres) {
 }
 
 function exporterPassages(l, nom) {
-  const entete = ["Date", "Heure", "Étudiant", "Code", "Groupe", "Secteur", "Relais", "Couleur", "Voie", "Cotation", "Mode", "Résultat", "Assureur", "Ressenti"];
+  const entete = ["Date", "Heure", "Étudiant", "Code", "Groupe", "Secteur", "Relais", "Couleur", "Voie", "Cotation", "Type d'exercice", "Mode", "Résultat", "Assureur", "Ressenti"];
   const rows = l.map(p => [fmtDate(p.date), fmtHeure(p.date), p.etudiant, p.code, p.groupe, p.secteur, p.relais, p.couleur, p.nomVoie, p.cotation,
-    libelle(MODES, p.mode), libelle(RESULTATS, p.resultat), p.assureur, p.ressenti ? libelle(RESSENTIS, p.ressenti) : ""]);
+    p.objectif ? libelle(OBJECTIFS, p.objectif) : "", libelle(MODES, p.mode), libelle(RESULTATS, p.resultat), p.assureur, p.ressenti ? libelle(RESSENTIS, p.ressenti) : ""]);
   const csv = [entete, ...rows].map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));

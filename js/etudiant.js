@@ -3,7 +3,7 @@
 // =====================================================================
 import * as DB from "./db.js";
 import {
-  SECTEURS, COULEURS, COTATIONS, MODES, RESULTATS, RESSENTIS, libelle, rangCotation,
+  SECTEURS, COULEURS, COTATIONS, MODES, RESULTATS, RESSENTIS, OBJECTIFS, libelle, rangCotation,
   fmtDate, fmtHeure, esc
 } from "./topo.js";
 import { maxTete, maxMoulinette, pyramide, jour } from "./stats.js";
@@ -209,7 +209,7 @@ function ligneP(p) {
     <span class="cot">${esc(p.cotation)}</span>
     <div class="info">
       <div><b>${esc(p.nomVoie)}</b> <span class="small muted">· R${p.relais}</span></div>
-      <div class="small muted">${[libelle(MODES, p.mode), p.assureur ? "assuré·e par " + esc(p.assureur) : "", p.ressenti ? libelle(RESSENTIS, p.ressenti) : "", fmtHeure(p.date)].filter(Boolean).join(" · ")}</div>
+      <div class="small muted">${[p.objectif ? libelle(OBJECTIFS, p.objectif) : "", libelle(MODES, p.mode), p.assureur ? "assuré·e par " + esc(p.assureur) : "", p.ressenti ? libelle(RESSENTIS, p.ressenti) : "", fmtHeure(p.date)].filter(Boolean).join(" · ")}</div>
     </div>
     <span class="pastille ${res[2] || ""}">${res[1] || ""}</span>
     ${annulable ? `<button class="lien" data-annuler="${p.id}" title="Annuler (15 min)">✕</button>` : ""}
@@ -274,6 +274,7 @@ function vueSaisie() {
         <span class="presc"><span class="gros">${esc(v.cotation || "?")}</span></span></div>
       <div id="s-photo"></div>
       <button class="lien" id="s-retour">← Changer de voie</button>
+      <label>Type d'exercice</label>${seg("objectif", OBJECTIFS)}
       <label>Mode</label>${seg("mode", MODES)}
       <label>Résultat</label>${seg("resultat", RESULTATS)}
       <label for="s-ass">Assuré·e par</label>
@@ -281,8 +282,8 @@ function vueSaisie() {
         ${optionsAssureurs()}
       </select>
       <label>Ressenti</label>${seg("ressenti", RESSENTIS)}
-      <button class="primaire plein" id="s-ok" style="margin-top:18px" ${saisie.resultat ? "" : "disabled"}>Enregistrer</button>
-      ${saisie.resultat ? "" : `<p class="small muted" style="text-align:center">Choisissez au moins le résultat.</p>`}
+      <button class="primaire plein" id="s-ok" style="margin-top:18px" ${saisie.resultat && saisie.objectif ? "" : "disabled"}>Enregistrer</button>
+      ${saisie.resultat && saisie.objectif ? "" : `<p class="small muted" style="text-align:center">Choisissez au moins le type d'exercice et le résultat.</p>`}
     </div>`;
     z.querySelectorAll("[data-seg]").forEach(b => b.onclick = () => { saisie[b.dataset.seg] = b.dataset.val; vueSaisie(); });
     z.querySelector("#s-ass").onchange = ev => { saisie.assureur = ev.target.value; };
@@ -309,7 +310,7 @@ async function enregistrer() {
   try {
     await DB.ajouterPassage(E, seance?.id, {
       groupe: seance.groupe, voieId: v.id, relais: v.relais, couleur: v.couleur, cotation: v.cotation, nomVoie: v.nom, secteur: v.secteur,
-      mode: saisie.mode, resultat: saisie.resultat, assureur: saisie.assureur || "", ressenti: saisie.ressenti || ""
+      objectif: saisie.objectif, mode: saisie.mode, resultat: saisie.resultat, assureur: saisie.assureur || "", ressenti: saisie.ressenti || ""
     });
     memo.set(clePrefs(), JSON.stringify({ mode: saisie.mode, assureur: saisie.assureur }));
     toast(`${v.cotation} ${v.couleur} enregistrée ✔`);

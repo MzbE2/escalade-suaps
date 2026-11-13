@@ -31,6 +31,8 @@ export const normaliserCreneau = t => {
 
 export const MODES = [["moulinette", "Moulinette"], ["tete", "En tête"]];
 export const RESULTATS = [["enchaine", "Enchaîné", "ok"], ["pose", "Avec pose", "warn"], ["echec", "Pas au sommet", "bad"]];
+// Type d'exercice : pourquoi l'étudiant grimpe cette voie
+export const OBJECTIFS = [["echauffement", "Échauffement"], ["travail", "Travail"], ["max", "Niveau max"]];
 export const RESSENTIS = [["facile", "Facile"], ["adapte", "Adapté"], ["difficile", "Difficile"], ["tropdur", "Trop dur"]];
 export const libelle = (liste, cle) => (liste.find(x => x[0] === cle) || [, cle || "—"])[1];
 
