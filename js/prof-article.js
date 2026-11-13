@@ -167,11 +167,22 @@ function vueApercu() {
     <div class="carte"><h3>Voir l'onglet « Article » comme un étudiant</h3>
       <select id="ap-sel" style="max-width:360px"><option value="">Choisissez un étudiant…</option>
         ${etus.map(e => `<option value="${esc(e.code)}" ${e.code === apercuCode ? "selected" : ""}>${esc(e.prenom + " " + e.nom)}${ins[e.code] ? " · sujet " + ins[e.code].num : ""}</option>`).join("")}</select>
-      <p class="small muted">Aperçu en lecture seule : exactement ce que voit l'étudiant (rien n'est cliquable). ${etatAcces()}</p></div>
+      <p class="small muted">Ce que voit l'étudiant. Vous pouvez <b>attribuer son sujet</b> et <b>choisir ses relectures à sa place</b>, même si les choix sont fermés (les cases « réalisé » et « relu » restent à l'étudiant). ${etatAcces()}</p></div>
     <div class="apercu-tel" id="ap-zone">${apercuCode
-      ? htmlArticle({ cfg, sujets: cfg.visibles ? sujets : null, ins: ins[apercuCode] || null, apercu: true })
+      ? htmlArticle({ cfg, sujets, ins: ins[apercuCode] || null, apercu: true })
       : `<div class="vide">Sélectionnez un étudiant ci-dessus.</div>`}</div>`;
   z.querySelector("#ap-sel").onchange = ev => { apercuCode = ev.target.value; vueApercu(); };
+  const e = etus.find(x => x.code === apercuCode);
+  z.querySelectorAll("[data-choisir]").forEach(b => b.onclick = async () => {
+    const s = sujets.find(x => x.id === b.dataset.choisir);
+    if (!e || !s || !(await ctx.demander(`Attribuer le sujet ${s.num} « ${s.titre} » à ${e.prenom} ${e.nom} ?`, "Attribuer"))) return;
+    try { await DB.choisirSujet(e, s.id, true); ctx.toast(`Sujet ${s.num} attribué à ${e.prenom}`); } catch (err) { erreur(err); }
+  });
+  z.querySelectorAll("[data-relire]").forEach(b => b.onclick = async () => {
+    const s = sujets.find(x => x.id === b.dataset.relire);
+    if (!e || !s || !(await ctx.demander(`${e.prenom} ${e.nom} relira l'article de ${s.par} (sujet ${s.num}) ?`, "Valider"))) return;
+    try { await DB.choisirRelecture(e.code, s.id, true); ctx.toast("Relecture ajoutée"); } catch (err) { erreur(err); }
+  });
 }
 
 // ================= Réglages =================
