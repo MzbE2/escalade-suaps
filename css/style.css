@@ -111,6 +111,11 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 .stat .lbl { font-size: .78rem; color: var(--ink-2); text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }
 .stat.accent { background: var(--accent-soft); }
 .stat.accent .val { color: var(--accent); }
+.stat.estime { background: var(--surface); border: 2px dashed var(--accent); display: flex; align-items: baseline; gap: 12px; }
+.stat.estime .lbl { margin-top: 0; }
+.niveau-estime { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 0; }
+.niveau-estime label { margin: 0; font-weight: 600; }
+.niveau-estime select { width: auto; min-width: 110px; }
 
 .pastille {
   display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: .78rem; font-weight: 600;
