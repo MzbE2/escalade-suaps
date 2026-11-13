@@ -41,10 +41,13 @@ export const SUJETS = LISTE.map(([titre, desc], i) => ({ id: "s" + String(i + 1)
 //   cfg     : { visibles, choixOuverts }
 //   sujets  : liste des sujets, ou null si l'étudiant n'y a pas accès
 //   ins     : son inscription (ou null)
-//   apercu  : true dans l'espace prof (rien n'est cliquable)
+//   apercu  : true dans l'espace prof : les cases ne sont pas cliquables,
+//             mais l'enseignant peut choisir sujet et relectures POUR l'étudiant
+//             (même si les choix sont fermés)
 // ---------------------------------------------------------------------
 export function htmlArticle({ cfg = {}, sujets, ins, apercu = false }) {
   const dis = apercu ? "disabled" : "";
+  if (apercu) cfg = { ...cfg, visibles: true, choixOuverts: true, relecturesOuvertes: true };
   if (!cfg.visibles || !sujets) {
     return `<div class="carte article-ferme"><h3>Article de gazette</h3>
       <p>🔒 Les sujets d'article ne sont pas encore disponibles.</p>
@@ -68,7 +71,7 @@ export function htmlArticle({ cfg = {}, sujets, ins, apercu = false }) {
           <span class="desc small">${esc(s.desc)}</span>
           ${s.pris
             ? `<span class="pastille">Déjà pris · ${esc(s.par)}</span>`
-            : `<button class="primaire" data-choisir="${s.id}" ${ouvert && !apercu ? "" : "disabled"}>Choisir ce sujet</button>`}
+            : `<button class="primaire" data-choisir="${s.id}" ${ouvert ? "" : "disabled"}>${apercu ? "Attribuer ce sujet" : "Choisir ce sujet"}</button>`}
         </div>`).join("")}</div>`;
   }
   const relus = ins.relus || {};
@@ -113,7 +116,7 @@ export function htmlArticle({ cfg = {}, sujets, ins, apercu = false }) {
           <span class="num">Sujet ${s.num} · article de ${esc(s.par)}</span>
           <b class="titre">${esc(s.titre)}</b>
           <div>${jauge(s)}</div>
-          ${plein ? "" : `<button class="primaire" data-relire="${s.id}" ${ouvert && !apercu ? "" : "disabled"}>Je relis cet article</button>`}
+          ${plein ? "" : `<button class="primaire" data-relire="${s.id}" ${ouvert ? "" : "disabled"}>${apercu ? "Lui faire relire cet article" : "Je relis cet article"}</button>`}
         </div>`; }).join("")}</div>` : `<p class="small muted">Aucun autre article pour l'instant : les autres étudiants n'ont pas encore choisi leur sujet.</p>`}
     </div>` : ""}
     <div class="carte">
