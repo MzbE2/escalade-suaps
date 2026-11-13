@@ -8,6 +8,7 @@ import {
 } from "./topo.js";
 import { maxTete, maxMoulinette, pyramide, jour } from "./stats.js";
 import { SEMESTRES } from "./evaluation.js";
+import { htmlArticle } from "./article.js";
 
 const app = document.getElementById("app");
 const CLE_CODE = "escalade-suaps-code";
@@ -26,6 +27,7 @@ let passages = [];       // son carnet (en direct)
 let onglet = "seance";
 let saisie = null;       // { relais, voie, mode, resultat, assureur, ressenti }
 let arrets = [];         // fonctions pour couper les écoutes en direct
+let cfgArt = {}, sujets = null, inscription = null, arretSujets = null;   // article de gazette
 
 if (DB.MODE_DEMO) document.getElementById("demo").classList.remove("cache");
 
@@ -92,6 +94,15 @@ async function connecter(code, interactif) {
       majListeAssureurs();
     }));
     arrets.push(await DB.ecouterPassagesEtudiant(E.code, l => { passages = l; majSeance(); if (onglet === "progression") vueProgression(); }));
+    // Article : les sujets ne sont chargés que lorsque l'enseignant en a ouvert l'accès
+    arrets.push(await DB.ecouterConfigArticle(async c => {
+      cfgArt = c || {};
+      if (cfgArt.visibles && !arretSujets) arretSujets = await DB.ecouterSujets(l => { sujets = l; if (onglet === "article") vueArticle(); });
+      if (!cfgArt.visibles && arretSujets) { try { arretSujets(); } catch (e) {} arretSujets = null; sujets = null; }
+      if (onglet === "article") vueArticle();
+    }));
+    arrets.push(() => { if (arretSujets) { arretSujets(); arretSujets = null; } });
+    arrets.push(await DB.ecouterInscription(E.code, i => { inscription = i; if (onglet === "article") vueArticle(); }));
     return true;
   } catch (err) {
     console.error(err);
@@ -102,7 +113,8 @@ async function connecter(code, interactif) {
 
 document.getElementById("btn-deco").onclick = () => {
   arrets.forEach(f => { try { f(); } catch (e) {} }); arrets = [];
-  memo.del(CLE_CODE); E = null; seance = null; passages = []; saisie = null; vueConnexion();
+  memo.del(CLE_CODE); E = null; seance = null; passages = []; saisie = null;
+  cfgArt = {}; sujets = null; inscription = null; vueConnexion();
 };
 
 // Met à jour les options du menu « Assuré·e par » s'il est affiché, sans perdre le choix en cours
@@ -132,7 +144,7 @@ function rendre() {
     </div>
     <div id="bandeau"></div>
     <nav class="onglets">
-      ${[["seance", "Ma séance"], ["progression", "Progression"]]
+      ${[["seance", "Ma séance"], ["progression", "Progression"], ["article", "Article"]]
         .map(([id, l]) => `<button data-o="${id}" class="${onglet === id ? "actif" : ""}">${l}</button>`).join("")}
     </nav>
     <section id="contenu"></section>`;
@@ -151,7 +163,7 @@ function rendre() {
     sel.disabled = false;
   };
   majBandeau();
-  if (onglet === "seance") vueSeance(); else vueProgression();
+  if (onglet === "seance") vueSeance(); else if (onglet === "article") vueArticle(); else vueProgression();
 }
 
 function majBandeau() {
@@ -371,6 +383,46 @@ function vueProgression() {
     try { await DB.supprimerPassage(p); toast("Voie retirée"); } catch (e) { toast("Trop tard pour annuler."); }
   });
   c.querySelectorAll("[data-semc]").forEach(b => b.onclick = () => { semCriteres = b.dataset.semc; vueProgression(); });
+}
+
+// ---------------- Onglet « Article » (gazette) ----------------
+function vueArticle() {
+  const c = document.getElementById("contenu");
+  if (!c) return;
+  c.innerHTML = htmlArticle({ cfg: cfgArt, sujets, ins: inscription });
+  c.querySelectorAll("[data-choisir]").forEach(b => b.onclick = () => {
+    const s = (sujets || []).find(x => x.id === b.dataset.choisir);
+    if (s) confirmerChoix(s);
+  });
+  const r = c.querySelector("[data-realise]");
+  if (r) r.onchange = () => sauverIns({ realise: r.checked }, r);
+  c.querySelectorAll("[data-relu]").forEach(x => x.onchange = () =>
+    sauverIns({ relus: { ...(inscription.relus || {}), [x.dataset.relu]: x.checked } }, x));
+}
+async function sauverIns(champs, el) {
+  try { await DB.majInscription(E.code, champs); toast("Enregistré ✔"); }
+  catch (e) { console.error(e); el.checked = !el.checked; toast("Enregistrement impossible : vérifiez le réseau."); }
+}
+function confirmerChoix(s) {
+  const d = document.createElement("div");
+  d.className = "modal-fond";
+  d.innerHTML = `<div class="modal" style="max-width:440px">
+    <h3 style="margin-top:0">Choisir le sujet ${s.num} ?</h3>
+    <p><b>${esc(s.titre)}</b></p>
+    <p class="small" style="color:var(--bad)">Attention : <b>ce choix est définitif</b>, tu ne pourras plus changer de sujet.</p>
+    <div class="ligne" style="justify-content:flex-end;margin-top:14px">
+      <button id="cs-non">Annuler</button><button class="primaire" id="cs-oui">Oui, je choisis ce sujet</button></div></div>`;
+  document.body.appendChild(d);
+  d.querySelector("#cs-non").onclick = () => d.remove();
+  d.querySelector("#cs-oui").onclick = async ev => {
+    ev.target.disabled = true;
+    try { await DB.choisirSujet(E, s.id); toast(`Sujet ${s.num} choisi ✔`); }
+    catch (e) {
+      console.error(e);
+      toast(e.message && !/permission/i.test(e.message) ? e.message : "Choix impossible : le sujet vient peut-être d'être pris, ou le choix est fermé.");
+    }
+    d.remove();
+  };
 }
 
 demarrer();

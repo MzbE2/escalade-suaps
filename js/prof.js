@@ -7,6 +7,7 @@ import {
   fmtDate, fmtHeure, esc
 } from "./topo.js";
 import { maxTete, maxMoulinette, pyramide, jour, meilleure, enchaine } from "./stats.js";
+import { initArticle, vueArticle, ONGLETS_ARTICLE, oublierEvals } from "./prof-article.js";
 import { SEMESTRES, BAREMES, NIVEAUX, pointsBareme, noteCritere, notePartie, nbItems, niveauxSaisis, fmtNote } from "./evaluation.js";
 
 const app = document.getElementById("app");
@@ -74,6 +75,7 @@ async function entrer(user) {
     if (!seanceSuivie && ouvertes.length) suivre(ouvertes[0]);
     if (onglet === "direct") vueDirect();
   });
+  await initArticle({ contenu: () => document.getElementById("contenu"), etudiants: () => etudiants, toast, demander, onglet: () => onglet });
   minuterie = setInterval(() => { if (onglet === "direct" && seanceSuivie) majDirect(); }, 30000);
   rendre();
 }
@@ -115,15 +117,17 @@ async function charger() {
 function rendre() {
   app.innerHTML = `
     <nav class="onglets no-print">
-      ${[["direct", "● En direct"], ["seances", "Séances"], ["etudiants", `Étudiants (${etudiants.length})`], ["evaluation", "Évaluation"], ["qr", "QR codes"], ["topo", "Topo"]]
+      ${[["direct", "● En direct"], ["seances", "Séances"], ["etudiants", `Étudiants (${etudiants.length})`], ["evaluation", "Évaluation"], ["qr", "QR codes"], ["topo", "Topo"], ...ONGLETS_ARTICLE]
         .map(([id, l]) => `<button data-o="${id}" class="${onglet === id ? "actif" : ""}">${l}</button>`).join("")}
     </nav>
     <section id="contenu"></section>`;
   app.querySelectorAll("[data-o]").forEach(b => b.onclick = () => {
     if (b.dataset.o === "evaluation" && onglet !== "evaluation") evals = null;   // recharge (nouvelles voies, nouveaux étudiants)
+    if (b.dataset.o === "recapsujets") oublierEvals();                         // note de théorie à jour
     onglet = b.dataset.o; rendre();
   });
-  ({ direct: vueDirect, seances: vueSeances, etudiants: vueEtudiants, evaluation: vueEvaluation, qr: vueQR, topo: vueTopo })[onglet]();
+  const vues = { direct: vueDirect, seances: vueSeances, etudiants: vueEtudiants, evaluation: vueEvaluation, qr: vueQR, topo: vueTopo };
+  if (vues[onglet]) vues[onglet](); else vueArticle(onglet);
 }
 const contenu = () => document.getElementById("contenu");
 

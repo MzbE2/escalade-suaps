@@ -370,3 +370,20 @@ button.niv.on { opacity: 1; border-color: var(--ink); box-shadow: 0 0 0 2px var(
 }
 .ev-nom .mini i { min-width: 38px; }
 @media (min-width: 901px) { .ev-grille { grid-template-columns: 310px minmax(0, 1fr); } }
+
+/* ---------- Article de gazette ---------- */
+.coche { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; font-size: 1rem; margin: 10px 0; cursor: pointer; }
+.coche input { width: auto; margin-top: 4px; flex: none; transform: scale(1.25); }
+.sujets { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); margin-top: 12px; }
+.sujet { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+.sujet .num { font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+.sujet .desc { color: var(--ink-2); flex: 1; }
+.sujet.pris { opacity: .55; }
+.sujet button { margin-top: 4px; }
+.article-ferme { text-align: center; }
+.table-sujets select.petit { min-width: 150px; padding: 4px 6px; font-size: .85rem; }
+.table-sujets td { vertical-align: top; }
+.apercu-tel { max-width: 480px; margin: 0 auto; border: 2px dashed var(--line); border-radius: 18px; padding: 10px; }
+.apercu-tel .sujets { grid-template-columns: 1fr; }
+/* Espace prof : beaucoup d'onglets → passage à la ligne sur PC */
+@media (min-width: 900px) { #app > nav.onglets { flex-wrap: wrap; overflow: visible; } }

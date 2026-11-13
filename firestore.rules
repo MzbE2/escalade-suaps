@@ -18,11 +18,14 @@ service cloud.firestore {
     function annulable() {
       return request.time < resource.data.ts + duration.value(15, 'm');
     }
-    // Un étudiant n'enregistre une voie que dans une séance OUVERTE de SON groupe
+    // Un étudiant n'enregistre une voie que dans une séance OUVERTE d'un de SES créneaux
+    // (groupes = ["Jeudi", "Vendredi"] ; les anciens profils n'ont que « groupe »)
     function seanceOuverteDuGroupe(code, seanceId) {
       let seance = get(/databases/$(database)/documents/seances/$(seanceId)).data;
+      let etu = get(/databases/$(database)/documents/etudiants/$(code)).data;
       return seance.ouverte == true
-        && seance.groupe == get(/databases/$(database)/documents/etudiants/$(code)).data.groupe;
+        && (seance.groupe == etu.get('groupe', '')
+            || (etu.get('groupes', []) is list && seance.groupe in etu.get('groupes', [])));
     }
     // Contrôle de la forme d'un passage envoyé par un étudiant
     function passageValide(code) {
@@ -33,7 +36,8 @@ service cloud.firestore {
         && d.resultat in ['enchaine', 'pose', 'echec']
         && d.keys().hasOnly(['id', 'code', 'etudiant', 'groupe', 'seanceId', 'date', 'ts',
              'voieId', 'relais', 'couleur', 'cotation', 'nomVoie', 'secteur',
-             'mode', 'resultat', 'assureur', 'ressenti']);
+             'mode', 'resultat', 'assureur', 'ressenti', 'objectif'])
+        && (!('objectif' in d) || d.objectif in ['', 'echauffement', 'travail', 'max']);
     }
 
     // Topo et annuaire des binômes : lisibles par tous, modifiables par l'enseignant
@@ -53,6 +57,11 @@ service cloud.firestore {
       allow get: if true;                 // lire UN profil si on connaît son code
       allow list: if estProf();           // la liste complète (donc les codes) est réservée à l'enseignant
       allow create, update, delete: if estProf();
+      // L'étudiant peut modifier UNIQUEMENT son niveau max estimé (ex. « 6a+ »)
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['niveauEstime', 'niveauEstimeLe'])
+        && request.resource.data.niveauEstime is string
+        && request.resource.data.niveauEstime.matches('^([3-8][abc][+]?)?$')
+        && request.resource.data.niveauEstimeLe is string;
 
       // Carnet de l'étudiant
       match /passages/{id} {
@@ -63,6 +72,76 @@ service cloud.firestore {
         allow update: if estProf();
         allow delete: if estProf() || annulable();
       }
+    }
+
+    // Évaluation détaillée (grille, cases cochées) : enseignant seulement
+    match /evaluations/{code} {
+      allow read, write: if estProf();
+    }
+
+    // Anciennes notes publiées : plus jamais lisibles par les étudiants
+    match /notes/{code} {
+      allow read, write: if estProf();
+    }
+
+    // ================= Article de gazette =================
+    function cfgArticle() {
+      return get(/databases/$(database)/documents/config/article).data;
+    }
+    function sujetsVisibles() {
+      return exists(/databases/$(database)/documents/config/article) && cfgArticle().get('visibles', false) == true;
+    }
+    function choixOuverts() {
+      return sujetsVisibles() && cfgArticle().get('choixOuverts', false) == true;
+    }
+
+    // Sujets : INVISIBLES pour les étudiants tant que l'enseignant n'a pas ouvert l'accès.
+    // Un étudiant peut seulement marquer un sujet LIBRE comme pris (en même temps que son inscription).
+    match /sujets/{sid} {
+      allow read: if estProf() || sujetsVisibles();
+      allow create, delete: if estProf();
+      allow update: if estProf() || (
+        choixOuverts()
+        && resource.data.pris == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pris', 'par'])
+        && request.resource.data.pris == true
+        && request.resource.data.par is string
+        && request.resource.data.par.size() <= 60
+      );
+    }
+
+    // Inscription = le sujet choisi. Identifiant = code de l'étudiant (sa clé d'accès).
+    // Un seul sujet, définitif ; ensuite il ne peut cocher que « réalisé » et « relu ».
+    match /inscriptions/{code} {
+      allow get: if true;            // avec son code seulement
+      allow list: if estProf();      // la liste complète (donc les codes) est réservée à l'enseignant
+      allow delete: if estProf();
+      allow create: if estProf() || (
+        etudiantExiste(code)
+        && choixOuverts()
+        && request.resource.data.keys().hasOnly(['code', 'sujet', 'num', 'titre', 'nom', 'groupe',
+             'realise', 'relus', 'aRelire', 'relecteurs', 'date', 'ts'])
+        && request.resource.data.code == code
+        && request.resource.data.ts == request.time
+        && request.resource.data.realise == false
+        && request.resource.data.relus.size() == 0
+        && request.resource.data.aRelire.size() == 0
+        && request.resource.data.relecteurs.size() == 0
+        && request.resource.data.sujet is string
+        && get(/databases/$(database)/documents/sujets/$(request.resource.data.sujet)).data.pris == false
+        && getAfter(/databases/$(database)/documents/sujets/$(request.resource.data.sujet)).data.pris == true
+        && getAfter(/databases/$(database)/documents/sujets/$(request.resource.data.sujet)).data.par == request.resource.data.nom
+      );
+      allow update: if estProf() || (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['realise', 'relus'])
+        && request.resource.data.realise is bool
+        && request.resource.data.relus is map
+      );
+    }
+
+    // Qui relit qui (codes des étudiants) : enseignant seulement
+    match /relectures/{code} {
+      allow read, write: if estProf();
     }
 
     // Séances : ouvertes et clôturées par l'enseignant
