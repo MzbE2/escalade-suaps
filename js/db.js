@@ -214,13 +214,11 @@ export async function majEtudiant(code, champs) {
 
 export async function supprimerEtudiant(code) {
   if (MODE_DEMO) {
+    await retirerDeLArticle(code);
     const m = lireDemo();
     delete m.etudiants[code];
     for (const [id, p] of Object.entries(m.passages)) if (p.code === code) delete m.passages[id];
     delete (m.evaluations || {})[code]; delete (m.notes || {})[code];
-    const ins = (m.inscriptions || {})[code];
-    if (ins && m.sujets?.[ins.sujet]) Object.assign(m.sujets[ins.sujet], { pris: false, par: "" });
-    delete (m.inscriptions || {})[code]; delete (m.relectures || {})[code];
     ecrireDemo(); return;
   }
   await fb();
@@ -232,9 +230,8 @@ export async function supprimerEtudiant(code) {
   }
   await fs.deleteDoc(fs.doc(db, "evaluations", code));
   await fs.deleteDoc(fs.doc(db, "notes", code));
-  // Article : le sujet redevient libre
-  const ins = await fs.getDoc(fs.doc(db, "inscriptions", code));
-  if (ins.exists()) await libererSujet(ins.data().sujet, code);
+  // Article : ses relectures sont annulées, son sujet redevient libre
+  await retirerDeLArticle(code);
   await fs.deleteDoc(fs.doc(db, "etudiants", code));
 }
 
@@ -434,15 +431,17 @@ export async function ecouterNotesPubliees(code, cb) {
 
 // =====================================================================
 //  Article de gazette (théorie S1) : sujets et relectures
-//  - config/article         { visibles, choixOuverts }  interrupteurs de l'enseignant
-//  - sujets/{sid}           { id, num, titre, desc, pris, par }
+//  - config/article         { visibles, choixOuverts, relecturesOuvertes }  interrupteurs de l'enseignant
+//  - sujets/{sid}           { id, num, titre, desc, pris, par, relecteurs: [noms] }
 //                           lisibles par les étudiants SEULEMENT si visibles == true
-//  - inscriptions/{code}    le sujet choisi par l'étudiant (lu avec son code)
-//                           { code, sujet, num, titre, nom, groupe, realise, relus, aRelire, relecteurs, date }
-//  - relectures/{code}      { relecteurs: [codes] }  qui relit l'article de qui — enseignant seulement
+//  - inscriptions/{code}    l'étudiant (lu avec son code) :
+//                           { code, sujet, num, titre, nom, groupe, realise, relus: {sid: bool},
+//                             aRelire: {sid: true}  ← articles qu'il a CHOISI de relire (4 max) }
+//  Les noms des relecteurs sont recopiés dans le sujet (jamais les codes, qui servent de clé d'accès).
 // =====================================================================
-const NB = { sujets: "sujets", ins: "inscriptions", rel: "relectures" };
-const demoArt = () => { const m = lireDemo(); m.sujets ||= {}; m.inscriptions ||= {}; m.relectures ||= {}; m.configArticle ||= {}; return m; };
+export const NB_RELECTURES = 4;
+const NB = { sujets: "sujets", ins: "inscriptions" };
+const demoArt = () => { const m = lireDemo(); m.sujets ||= {}; m.inscriptions ||= {}; m.configArticle ||= {}; return m; };
 
 export async function ecouterConfigArticle(cb) {
   if (MODE_DEMO) return ecouterDemo(() => cb(clone(demoArt().configArticle)));
@@ -463,16 +462,17 @@ export async function ecouterSujets(cb) {
   return fs.onSnapshot(fs.collection(db, NB.sujets), s => cb(tri(s.docs.map(d => d.data()))), e => { if (e.code !== "permission-denied") console.error(e); cb(null); });
 }
 export async function creerSujets(liste) {
+  const neuf = s => ({ ...s, pris: false, par: "", relecteurs: [] });
   if (MODE_DEMO) {
     const m = demoArt(); let n = 0;
-    liste.forEach(s => { if (!m.sujets[s.id]) { m.sujets[s.id] = { ...s, pris: false, par: "" }; n++; } });
+    liste.forEach(s => { if (!m.sujets[s.id]) { m.sujets[s.id] = neuf(s); n++; } });
     ecrireDemo(); return n;
   }
   await fb();
   const ex = await fs.getDocs(fs.collection(db, NB.sujets));
   const deja = new Set(ex.docs.map(d => d.id));
   const b = fs.writeBatch(db); let n = 0;
-  liste.forEach(s => { if (!deja.has(s.id)) { b.set(fs.doc(db, NB.sujets, s.id), { ...s, pris: false, par: "" }); n++; } });
+  liste.forEach(s => { if (!deja.has(s.id)) { b.set(fs.doc(db, NB.sujets, s.id), neuf(s)); n++; } });
   await b.commit();
   return n;
 }
@@ -488,18 +488,13 @@ export async function ecouterInscriptions(cb) {
   await fb();
   return fs.onSnapshot(fs.collection(db, NB.ins), s => cb(Object.fromEntries(s.docs.map(d => [d.id, d.data()]))), e => console.error(e));
 }
-export async function ecouterRelectures(cb) {
-  if (MODE_DEMO) return ecouterDemo(() => cb(clone(demoArt().relectures)));
-  await fb();
-  return fs.onSnapshot(fs.collection(db, NB.rel), s => cb(Object.fromEntries(s.docs.map(d => [d.id, d.data().relecteurs || []]))), e => console.error(e));
-}
 
 // Choisir un sujet : premier arrivé, premier servi, définitif.
 // parProf = true : l'enseignant attribue (même si les choix sont fermés)
 export async function choisirSujet(etudiant, sid, parProf = false) {
   const nom = nomCourt(etudiant);
   const ins = s => ({ code: etudiant.code, sujet: sid, num: s.num, titre: s.titre, nom, groupe: groupesDe(etudiant).join(" + "),
-    realise: false, relus: {}, aRelire: [], relecteurs: [] });
+    realise: false, relus: {}, aRelire: {} });
   if (MODE_DEMO) {
     const m = demoArt(), s = m.sujets[sid];
     if (!s) throw new Error("Sujet introuvable.");
@@ -522,51 +517,112 @@ export async function choisirSujet(etudiant, sid, parProf = false) {
   });
 }
 
-// L'étudiant coche « réalisé » ou « relu » (seuls champs qu'il peut modifier)
+// Choisir un article à relire (4 max, définitif ; 4 relecteurs max par article).
+// parProf = true : l'enseignant inscrit un relecteur (même si les relectures sont fermées)
+function verifierRelecture(s, i, sid, parProf, cfg) {
+  if (!parProf && !(cfg.visibles && cfg.relecturesOuvertes)) throw new Error("Le choix des relectures est fermé.");
+  if (!i) throw new Error("Choisis d'abord ton propre sujet.");
+  if (!s || !s.pris) throw new Error("Cet article n'existe pas.");
+  if (i.sujet === sid) throw new Error("Tu ne peux pas relire ton propre article.");
+  const a = mapRelire(i);
+  if (a[sid]) throw new Error("Tu relis déjà cet article.");
+  if (Object.keys(a).length >= NB_RELECTURES) throw new Error(`Tu as déjà choisi ${NB_RELECTURES} articles.`);
+  if ((s.relecteurs || []).length >= NB_RELECTURES) throw new Error("Trop tard, cet article a déjà ses relecteurs.");
+}
+// anciennes inscriptions : aRelire était une liste vide
+export const mapRelire = i => (i && i.aRelire && !Array.isArray(i.aRelire)) ? i.aRelire : {};
+
+export async function choisirRelecture(code, sid, parProf = false) {
+  if (MODE_DEMO) {
+    const m = demoArt(), s = m.sujets[sid], i = m.inscriptions[code];
+    verifierRelecture(s, i, sid, parProf, m.configArticle);
+    s.relecteurs = [...(s.relecteurs || []), i.nom];
+    i.aRelire = { ...mapRelire(i), [sid]: true };
+    ecrireDemo(); return;
+  }
+  await fb();
+  const cfg = parProf ? {} : ((await fs.getDoc(fs.doc(db, "config", "article"))).data() || {});
+  await fs.runTransaction(db, async tx => {
+    const sRef = fs.doc(db, NB.sujets, sid), iRef = fs.doc(db, NB.ins, code);
+    const sDoc = await tx.get(sRef), iDoc = await tx.get(iRef);
+    const s = sDoc.exists() ? sDoc.data() : null, i = iDoc.exists() ? iDoc.data() : null;
+    verifierRelecture(s, i, sid, parProf, cfg);
+    tx.update(sRef, { relecteurs: [...(s.relecteurs || []), i.nom] });
+    tx.update(iRef, { aRelire: { ...mapRelire(i), [sid]: true }, dernierChoix: sid });
+  });
+}
+
+// L'étudiant coche « réalisé » ou « relu » (seuls champs qu'il peut modifier ainsi)
 export async function majInscription(code, champs) {
   if (MODE_DEMO) { Object.assign(demoArt().inscriptions[code], clone(champs)); ecrireDemo(); return; }
   await fb();
   await fs.updateDoc(fs.doc(db, NB.ins, code), champs);
 }
 
-// Enseignant : retirer un étudiant de son sujet (le sujet redevient libre)
+// Enseignant : retirer un relecteur d'un article
+export async function retirerRelecture(code, sid) {
+  const sans = (l, nom) => { const k = l.indexOf(nom); return k < 0 ? l : [...l.slice(0, k), ...l.slice(k + 1)]; };
+  if (MODE_DEMO) {
+    const m = demoArt(), i = m.inscriptions[code], s = m.sujets[sid];
+    if (i) { i.aRelire = { ...mapRelire(i) }; delete i.aRelire[sid]; if (i.relus) delete i.relus[sid]; }
+    if (s && i) s.relecteurs = sans(s.relecteurs || [], i.nom);
+    ecrireDemo(); return;
+  }
+  await fb();
+  await fs.runTransaction(db, async tx => {
+    const sRef = fs.doc(db, NB.sujets, sid), iRef = fs.doc(db, NB.ins, code);
+    const sDoc = await tx.get(sRef), iDoc = await tx.get(iRef);
+    if (!iDoc.exists()) return;
+    const i = iDoc.data(), a = { ...mapRelire(i) }, r = { ...(i.relus || {}) };
+    delete a[sid]; delete r[sid];
+    tx.update(iRef, { aRelire: a, relus: r });
+    if (sDoc.exists()) tx.update(sRef, { relecteurs: sans(sDoc.data().relecteurs || [], i.nom) });
+  });
+}
+
+// Enseignant : retirer un étudiant de son sujet (le sujet redevient libre, ses relecteurs sont libérés)
 export async function libererSujet(sid, code) {
   if (MODE_DEMO) {
     const m = demoArt();
-    if (m.sujets[sid]) Object.assign(m.sujets[sid], { pris: false, par: "" });
-    if (code) { delete m.inscriptions[code]; delete m.relectures[code]; }
+    if (m.sujets[sid]) Object.assign(m.sujets[sid], { pris: false, par: "", relecteurs: [] });
+    if (code) delete m.inscriptions[code];
     ecrireDemo(); return;
   }
   await fb();
   const b = fs.writeBatch(db);
-  b.update(fs.doc(db, NB.sujets, sid), { pris: false, par: "" });
-  if (code) { b.delete(fs.doc(db, NB.ins, code)); b.delete(fs.doc(db, NB.rel, code)); }
+  b.update(fs.doc(db, NB.sujets, sid), { pris: false, par: "", relecteurs: [] });
+  if (code) b.delete(fs.doc(db, NB.ins, code));
   await b.commit();
 }
 
-// Enseignant : enregistre qui relit qui, et recopie dans chaque inscription
-// les NOMS (jamais les codes) : aRelire = articles à relire, relecteurs = qui relit mon article
-//   rel = { codeAuteur: [codeRelecteur, ...] }, ins = inscriptions actuelles
-export async function enregistrerRelectures(rel, ins) {
-  const aRelire = {}, relecteurs = {};
-  Object.keys(ins).forEach(c => { aRelire[c] = []; relecteurs[c] = []; });
-  for (const [a, liste] of Object.entries(rel)) {
-    if (!ins[a]) continue;
-    for (const r of liste) {
-      if (!r || !ins[r]) continue;
-      aRelire[r].push({ sujet: ins[a].sujet, num: ins[a].num, titre: ins[a].titre, nom: ins[a].nom });
-      relecteurs[a].push(ins[r].nom);
+// Enseignant : retirer complètement un étudiant de l'article
+// (ses relectures, les relecteurs de son article, puis son sujet redevient libre)
+export async function retirerDeLArticle(code) {
+  let i, relecteursDeLui = [];
+  if (MODE_DEMO) {
+    const m = demoArt(); i = m.inscriptions[code];
+    if (i) relecteursDeLui = Object.keys(m.inscriptions).filter(c => mapRelire(m.inscriptions[c])[i.sujet]);
+  } else {
+    await fb();
+    const d = await fs.getDoc(fs.doc(db, NB.ins, code));
+    i = d.exists() ? d.data() : null;
+    if (i) {
+      const q = await fs.getDocs(fs.query(fs.collection(db, NB.ins), fs.where(`aRelire.${i.sujet}`, "==", true)));
+      relecteursDeLui = q.docs.map(x => x.id);
     }
   }
-  if (MODE_DEMO) {
-    const m = demoArt();
-    m.relectures = clone(Object.fromEntries(Object.entries(rel).filter(([a]) => ins[a])));
-    Object.keys(ins).forEach(c => { if (m.inscriptions[c]) Object.assign(m.inscriptions[c], { aRelire: aRelire[c], relecteurs: relecteurs[c] }); });
-    ecrireDemo(); return;
-  }
+  if (!i) return;
+  for (const sid of Object.keys(mapRelire(i))) await retirerRelecture(code, sid);
+  for (const r of relecteursDeLui) if (r !== code) await retirerRelecture(r, i.sujet);
+  await libererSujet(i.sujet, code);
+}
+
+// Enseignant : passage à la nouvelle version (aRelire en liste → objet ; anciens champs supprimés)
+export async function migrerInscriptions(ins) {
+  const vieux = Object.entries(ins).filter(([, i]) => Array.isArray(i.aRelire) || "relecteurs" in i);
+  if (!vieux.length || MODE_DEMO) return;
   await fb();
   const b = fs.writeBatch(db);
-  for (const [a, liste] of Object.entries(rel)) if (ins[a]) b.set(fs.doc(db, NB.rel, a), { relecteurs: liste });
-  Object.keys(ins).forEach(c => b.update(fs.doc(db, NB.ins, c), { aRelire: aRelire[c], relecteurs: relecteurs[c] }));
+  vieux.forEach(([c, i]) => b.update(fs.doc(db, NB.ins, c), { aRelire: mapRelire(i), relecteurs: fs.deleteField() }));
   await b.commit();
 }

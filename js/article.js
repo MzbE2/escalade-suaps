@@ -71,13 +71,24 @@ export function htmlArticle({ cfg = {}, sujets, ins, apercu = false }) {
             : `<button class="primaire" data-choisir="${s.id}" ${ouvert && !apercu ? "" : "disabled"}>Choisir ce sujet</button>`}
         </div>`).join("")}</div>`;
   }
-  const aRelire = ins.aRelire || [], relus = ins.relus || {};
-  const nbRelus = aRelire.filter(a => relus[a.sujet]).length;
+  const relus = ins.relus || {};
+  const mesIds = Object.keys(ins.aRelire && !Array.isArray(ins.aRelire) ? ins.aRelire : {});
+  const parId = Object.fromEntries(sujets.map(s => [s.id, s]));
+  const mes = mesIds.map(id => parId[id]).filter(Boolean).sort((a, b) => a.num - b.num);
+  const nbRelus = mes.filter(a => relus[a.id]).length;
+  const reste = NB_RELECT - mes.length;
+  const ouvert = !!cfg.relecturesOuvertes;
+  // articles proposés : ceux des autres, pas encore choisis, qui ont encore de la place (les moins relus d'abord)
+  const dispo = sujets.filter(s => s.pris && s.id !== ins.sujet && !mesIds.includes(s.id))
+    .sort((a, b) => (a.relecteurs || []).length - (b.relecteurs || []).length || a.num - b.num);
+  const libres = dispo.filter(s => (s.relecteurs || []).length < NB_RELECT);
+  const monSujet = parId[ins.sujet] || {};
+  const jauge = s => { const n = (s.relecteurs || []).length; return `<span class="pastille ${n >= NB_RELECT ? "bad" : n ? "" : "ok"}">${n}/${NB_RELECT} relecteurs</span>`; };
   return `
     <div class="carte">
       <p class="small muted" style="margin:0">Mon sujet</p>
       <h3 style="margin:4px 0">Sujet ${ins.num} · ${esc(ins.titre)}</h3>
-      ${(sujets.find(s => s.id === ins.sujet) || {}).desc ? `<p class="small muted">${esc(sujets.find(s => s.id === ins.sujet).desc)}</p>` : ""}
+      ${monSujet.desc ? `<p class="small muted">${esc(monSujet.desc)}</p>` : ""}
     </div>
     <div class="carte">
       <h3>Mon article</h3>
@@ -85,16 +96,31 @@ export function htmlArticle({ cfg = {}, sujets, ins, apercu = false }) {
         <span>J'ai <b>réalisé</b> mon article</span></label>
     </div>
     <div class="carte">
-      <h3>Articles à relire ${aRelire.length ? `<span class="pastille ${nbRelus === aRelire.length ? "ok" : ""}">${nbRelus}/${aRelire.length}</span>` : ""}</h3>
-      ${aRelire.length ? aRelire.map(a => `
-        <label class="coche"><input type="checkbox" data-relu="${esc(a.sujet)}" ${relus[a.sujet] ? "checked" : ""} ${dis}>
-          <span>J'ai <b>relu</b> l'article de ${esc(a.nom)}<br><span class="small muted">Sujet ${a.num} : ${esc(a.titre)} · orthographe et mise en forme</span></span></label>`).join("")
-        : `<p class="small muted">Ton enseignant·e n'a pas encore désigné les articles que tu dois relire.</p>`}
+      <h3>Mes relectures <span class="pastille ${mes.length && nbRelus === mes.length && !reste ? "ok" : ""}">${nbRelus}/${NB_RELECT} relues</span></h3>
+      <p class="small muted">Tu relis ${NB_RELECT} articles d'autres étudiants (orthographe et mise en forme). C'est toi qui les choisis.</p>
+      ${mes.map(a => `
+        <label class="coche"><input type="checkbox" data-relu="${esc(a.id)}" ${relus[a.id] ? "checked" : ""} ${dis}>
+          <span>J'ai <b>relu</b> l'article de ${esc(a.par)}<br><span class="small muted">Sujet ${a.num} : ${esc(a.titre)}</span></span></label>`).join("")}
+      ${!mes.length ? `<p class="small">Tu n'as pas encore choisi d'article à relire.</p>` : ""}
     </div>
+    ${reste > 0 ? `<div class="carte">
+      <h3>Choisir ${reste === NB_RELECT ? `mes ${NB_RELECT} articles` : `encore ${reste} article${reste > 1 ? "s" : ""}`} à relire</h3>
+      ${!ouvert ? `<p class="small muted">🔒 Le choix des articles à relire n'est pas encore ouvert. Reviens quand ton enseignant·e te le dira.</p>` : ""}
+      ${ouvert ? `<p class="small muted">Chaque article a ${NB_RELECT} relecteurs au maximum. <b>Ton choix est définitif.</b> ${libres.length} article${libres.length > 1 ? "s" : ""} avec encore de la place.</p>` : ""}
+      ${dispo.length ? `<div class="sujets">${dispo.map(s => {
+        const plein = (s.relecteurs || []).length >= NB_RELECT;
+        return `<div class="sujet ${plein ? "pris" : ""}">
+          <span class="num">Sujet ${s.num} · article de ${esc(s.par)}</span>
+          <b class="titre">${esc(s.titre)}</b>
+          <div>${jauge(s)}</div>
+          ${plein ? "" : `<button class="primaire" data-relire="${s.id}" ${ouvert && !apercu ? "" : "disabled"}>Je relis cet article</button>`}
+        </div>`; }).join("")}</div>` : `<p class="small muted">Aucun autre article pour l'instant : les autres étudiants n'ont pas encore choisi leur sujet.</p>`}
+    </div>` : ""}
     <div class="carte">
       <h3>Mon article est relu par</h3>
-      ${(ins.relecteurs || []).length
-        ? `<div class="ligne">${ins.relecteurs.map(n => `<span class="pastille accent">${esc(n)}</span>`).join("")}</div>`
-        : `<p class="small muted">Tes relecteurs n'ont pas encore été désignés.</p>`}
+      ${(monSujet.relecteurs || []).length
+        ? `<div class="ligne">${monSujet.relecteurs.map(n => `<span class="pastille accent">${esc(n)}</span>`).join("")}</div>
+           <p class="small muted">${monSujet.relecteurs.length}/${NB_RELECT} relecteurs</p>`
+        : `<p class="small muted">Personne n'a encore choisi de relire ton article.</p>`}
     </div>`;
 }

@@ -396,12 +396,37 @@ function vueArticle() {
   });
   const r = c.querySelector("[data-realise]");
   if (r) r.onchange = () => sauverIns({ realise: r.checked }, r);
+  c.querySelectorAll("[data-relire]").forEach(b => b.onclick = () => {
+    const s = (sujets || []).find(x => x.id === b.dataset.relire);
+    if (s) confirmerRelecture(s);
+  });
   c.querySelectorAll("[data-relu]").forEach(x => x.onchange = () =>
     sauverIns({ relus: { ...(inscription.relus || {}), [x.dataset.relu]: x.checked } }, x));
 }
 async function sauverIns(champs, el) {
   try { await DB.majInscription(E.code, champs); toast("Enregistré ✔"); }
   catch (e) { console.error(e); el.checked = !el.checked; toast("Enregistrement impossible : vérifiez le réseau."); }
+}
+function confirmerRelecture(s) {
+  const d = document.createElement("div");
+  d.className = "modal-fond";
+  d.innerHTML = `<div class="modal" style="max-width:440px">
+    <h3 style="margin-top:0">Relire l'article de ${esc(s.par)} ?</h3>
+    <p>Sujet ${s.num} : <b>${esc(s.titre)}</b></p>
+    <p class="small" style="color:var(--bad)">Attention : <b>ce choix est définitif</b>.</p>
+    <div class="ligne" style="justify-content:flex-end;margin-top:14px">
+      <button id="cr-non">Annuler</button><button class="primaire" id="cr-oui">Oui, je relis cet article</button></div></div>`;
+  document.body.appendChild(d);
+  d.querySelector("#cr-non").onclick = () => d.remove();
+  d.querySelector("#cr-oui").onclick = async ev => {
+    ev.target.disabled = true;
+    try { await DB.choisirRelecture(E.code, s.id); toast("Article ajouté à tes relectures ✔"); }
+    catch (e) {
+      console.error(e);
+      toast(e.message && !/permission/i.test(e.message) ? e.message : "Choix impossible : l'article a peut-être déjà ses relecteurs, ou le choix est fermé.");
+    }
+    d.remove();
+  };
 }
 function confirmerChoix(s) {
   const d = document.createElement("div");

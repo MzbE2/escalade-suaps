@@ -387,3 +387,4 @@ button.niv.on { opacity: 1; border-color: var(--ink); box-shadow: 0 0 0 2px var(
 .apercu-tel .sujets { grid-template-columns: 1fr; }
 /* Espace prof : beaucoup d'onglets → passage à la ligne sur PC */
 @media (min-width: 900px) { #app > nav.onglets { flex-wrap: wrap; overflow: visible; } }
+.nowrap { white-space: nowrap; }

@@ -94,9 +94,16 @@ service cloud.firestore {
     function choixOuverts() {
       return sujetsVisibles() && cfgArticle().get('choixOuverts', false) == true;
     }
+    function relecturesOuvertes() {
+      return sujetsVisibles() && cfgArticle().get('relecturesOuvertes', false) == true;
+    }
+    function sujet(sid) {
+      return /databases/$(database)/documents/sujets/$(sid);
+    }
 
     // Sujets : INVISIBLES pour les étudiants tant que l'enseignant n'a pas ouvert l'accès.
-    // Un étudiant peut seulement marquer un sujet LIBRE comme pris (en même temps que son inscription).
+    // Un étudiant peut seulement : marquer un sujet LIBRE comme pris (avec son inscription),
+    // ou ajouter son nom aux relecteurs d'un article (4 max, avec son inscription).
     match /sujets/{sid} {
       allow read: if estProf() || sujetsVisibles();
       allow create, delete: if estProf();
@@ -107,11 +114,36 @@ service cloud.firestore {
         && request.resource.data.pris == true
         && request.resource.data.par is string
         && request.resource.data.par.size() <= 60
+      ) || (
+        relecturesOuvertes()
+        && resource.data.pris == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['relecteurs'])
+        && request.resource.data.relecteurs is list
+        && request.resource.data.relecteurs.size() == resource.data.get('relecteurs', []).size() + 1
+        && request.resource.data.relecteurs.size() <= 4
+        && request.resource.data.relecteurs.hasAll(resource.data.get('relecteurs', []))
       );
     }
 
+    // L'étudiant ajoute UN article (dernierChoix) à ses relectures, en même temps que son nom dans le sujet
+    function ajoutRelecture(avant, apres) {
+      let s = apres.dernierChoix;
+      return relecturesOuvertes()
+        && apres.diff(avant).affectedKeys().hasOnly(['aRelire', 'dernierChoix'])
+        && s is string
+        && s != avant.sujet
+        && avant.aRelire is map && apres.aRelire is map
+        && apres.aRelire.diff(avant.aRelire).affectedKeys() == [s].toSet()
+        && apres.aRelire.diff(avant.aRelire).addedKeys() == [s].toSet()
+        && apres.aRelire[s] == true
+        && apres.aRelire.size() <= 4
+        && get(sujet(s)).data.pris == true
+        && getAfter(sujet(s)).data.relecteurs.size() == get(sujet(s)).data.get('relecteurs', []).size() + 1
+        && avant.nom in getAfter(sujet(s)).data.relecteurs;
+    }
+
     // Inscription = le sujet choisi. Identifiant = code de l'étudiant (sa clé d'accès).
-    // Un seul sujet, définitif ; ensuite il ne peut cocher que « réalisé » et « relu ».
+    // Un seul sujet, définitif. Ensuite : cocher « réalisé » / « relu », et choisir ses 4 relectures.
     match /inscriptions/{code} {
       allow get: if true;            // avec son code seulement
       allow list: if estProf();      // la liste complète (donc les codes) est réservée à l'enseignant
@@ -120,28 +152,23 @@ service cloud.firestore {
         etudiantExiste(code)
         && choixOuverts()
         && request.resource.data.keys().hasOnly(['code', 'sujet', 'num', 'titre', 'nom', 'groupe',
-             'realise', 'relus', 'aRelire', 'relecteurs', 'date', 'ts'])
+             'realise', 'relus', 'aRelire', 'date', 'ts'])
         && request.resource.data.code == code
         && request.resource.data.ts == request.time
         && request.resource.data.realise == false
         && request.resource.data.relus.size() == 0
+        && request.resource.data.aRelire is map
         && request.resource.data.aRelire.size() == 0
-        && request.resource.data.relecteurs.size() == 0
         && request.resource.data.sujet is string
-        && get(/databases/$(database)/documents/sujets/$(request.resource.data.sujet)).data.pris == false
-        && getAfter(/databases/$(database)/documents/sujets/$(request.resource.data.sujet)).data.pris == true
-        && getAfter(/databases/$(database)/documents/sujets/$(request.resource.data.sujet)).data.par == request.resource.data.nom
+        && get(sujet(request.resource.data.sujet)).data.pris == false
+        && getAfter(sujet(request.resource.data.sujet)).data.pris == true
+        && getAfter(sujet(request.resource.data.sujet)).data.par == request.resource.data.nom
       );
       allow update: if estProf() || (
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['realise', 'relus'])
         && request.resource.data.realise is bool
         && request.resource.data.relus is map
-      );
-    }
-
-    // Qui relit qui (codes des étudiants) : enseignant seulement
-    match /relectures/{code} {
-      allow read, write: if estProf();
+      ) || ajoutRelecture(resource.data, request.resource.data);
     }
 
     // Séances : ouvertes et clôturées par l'enseignant
