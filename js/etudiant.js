@@ -3,7 +3,7 @@
 // =====================================================================
 import * as DB from "./db.js";
 import {
-  SECTEURS, COULEURS, MODES, RESULTATS, RESSENTIS, libelle, rangCotation,
+  SECTEURS, COULEURS, COTATIONS, MODES, RESULTATS, RESSENTIS, libelle, rangCotation,
   fmtDate, fmtHeure, esc
 } from "./topo.js";
 import { maxTete, maxMoulinette, pyramide, jour } from "./stats.js";
@@ -123,6 +123,13 @@ function rendre() {
   app.innerHTML = `
     <h2 style="margin-top:14px">${esc(E.prenom)} ${esc(E.nom)}</h2>
     <p class="muted small" style="margin:0">${esc(DB.groupesDe(E).join(" · "))}</p>
+    <div class="niveau-estime">
+      <label for="niv-est">Mon niveau max estimé</label>
+      <select id="niv-est">
+        <option value="">— Choisir —</option>
+        ${COTATIONS.map(c => `<option value="${c}" ${E.niveauEstime === c ? "selected" : ""}>${c.toUpperCase()}</option>`).join("")}
+      </select>
+    </div>
     <div id="bandeau"></div>
     <nav class="onglets">
       ${[["seance", "Ma séance"], ["progression", "Progression"]]
@@ -130,6 +137,19 @@ function rendre() {
     </nav>
     <section id="contenu"></section>`;
   app.querySelectorAll("[data-o]").forEach(b => b.onclick = () => { onglet = b.dataset.o; rendre(); });
+  const sel = document.getElementById("niv-est");
+  sel.onchange = async () => {
+    const avant = E.niveauEstime || "";
+    sel.disabled = true;
+    try {
+      Object.assign(E, await DB.majNiveauEstime(E.code, sel.value));
+      toast(sel.value ? `Niveau estimé : ${sel.value.toUpperCase()} ✔` : "Niveau estimé effacé");
+    } catch (e) {
+      console.error(e); sel.value = avant;
+      toast("Enregistrement impossible : vérifiez le réseau.");
+    }
+    sel.disabled = false;
+  };
   majBandeau();
   if (onglet === "seance") vueSeance(); else vueProgression();
 }

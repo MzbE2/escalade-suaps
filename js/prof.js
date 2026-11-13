@@ -814,6 +814,8 @@ async function ficheEtudiant(code) {
       <div class="ligne" style="align-items:flex-start;gap:18px;margin:10px 0">
         <div id="qr-fiche"></div>
         <div class="grille g2" style="flex:1;min-width:260px">
+          <div class="stat estime" style="grid-column:1 / -1"><div class="val">${e.niveauEstime ? esc(e.niveauEstime.toUpperCase()) : "—"}</div>
+            <div class="lbl">Niveau max estimé par l'étudiant${e.niveauEstime && e.niveauEstimeLe ? ` · le ${fmtDate(e.niveauEstimeLe)}` : ""}</div></div>
           <div class="stat accent"><div class="val">${maxTete(l) || "—"}</div><div class="lbl">Max en tête</div></div>
           <div class="stat"><div class="val">${maxMoulinette(l) || "—"}</div><div class="lbl">Max moulinette</div></div>
           <div class="stat"><div class="val num">${l.length}</div><div class="lbl">Voies</div></div>

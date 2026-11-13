@@ -232,6 +232,15 @@ export async function supprimerEtudiant(code) {
   await fs.deleteDoc(fs.doc(db, "etudiants", code));
 }
 
+// Niveau max estimé, renseigné par l'étudiant lui-même (ex. « 6a+ », ou "" pour effacer)
+export async function majNiveauEstime(code, niveau) {
+  const champs = { niveauEstime: niveau || "", niveauEstimeLe: maintenant() };
+  if (MODE_DEMO) { Object.assign(lireDemo().etudiants[code], champs); ecrireDemo(); return champs; }
+  await fb();
+  await fs.updateDoc(fs.doc(db, "etudiants", code), champs);
+  return champs;
+}
+
 // Changer les créneaux d'un étudiant (même profil, même code, même carnet)
 export async function modifierGroupes(code, groupes) {
   const champs = champsGroupes(lireGroupes(groupes));
